@@ -10,6 +10,7 @@ import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.responses import FileResponse, StreamingResponse, Response, JSONResponse
@@ -34,7 +35,7 @@ async def lifespan(app):
     if TASKS:await asyncio.gather(*TASKS.values(),return_exceptions=True)
 
 app=FastAPI(title='阅间',lifespan=lifespan)
-app.add_middleware(TrustedHostMiddleware,allowed_hosts=['localhost','127.0.0.1','testserver'])
+app.add_middleware(TrustedHostMiddleware,allowed_hosts=os.getenv('READING_ALLOWED_HOSTS','localhost,127.0.0.1,testserver').split(','))
 
 @app.exception_handler(HTTPException)
 async def localized_http_error(request:Request,exc:HTTPException):
@@ -42,13 +43,23 @@ async def localized_http_error(request:Request,exc:HTTPException):
 
 @app.middleware('http')
 async def local_origin(request: Request, call_next):
+    if request.url.path=='/api/import':
+        try:too_large=int(request.headers.get('content-length','0'))>21*1024*1024
+        except ValueError:too_large=True
+        if too_large:return JSONResponse({'detail':'单份文件最大 20 MB。 / Maximum file size: 20 MB.'},413)
     origin=request.headers.get('origin')
-    if request.method not in ('GET','HEAD','OPTIONS') and origin and origin != str(request.base_url).rstrip('/') and origin not in {
-        'http://localhost:8765','http://127.0.0.1:8765','http://localhost:5178','http://127.0.0.1:5178'}:
-        return Response('Origin not allowed',403)
+    allowed={str(request.base_url).rstrip('/')}
+    allowed.update({'http://localhost:8765','http://127.0.0.1:8765','http://localhost:5178','http://127.0.0.1:5178'})
+    if request.method not in ('GET','HEAD','OPTIONS'):
+        if (origin and origin not in allowed) or request.headers.get('sec-fetch-site')=='cross-site':
+            return Response('Origin not allowed',403)
     response=await call_next(request)
     response.headers['X-Content-Type-Options']='nosniff'
     response.headers['Referrer-Policy']='same-origin'
+    response.headers['X-Frame-Options']='DENY'
+    if request.url.path.startswith('/api/'):
+        response.headers['Cache-Control']='no-store'
+        response.headers['X-Robots-Tag']='noindex, nofollow'
     return response
 
 def require_book(bid):
@@ -67,13 +78,22 @@ def books():
         (SELECT COUNT(*) FROM sections WHERE book_id=b.id) section_count,
         (SELECT COUNT(*) FROM sections x JOIN marks m ON m.section_id=x.id WHERE x.book_id=b.id) read_count,
         (SELECT COUNT(DISTINCT chapter) FROM sections WHERE book_id=b.id) chapter_count,
-        (SELECT section_id FROM positions WHERE book_id=b.id) last_section
+        (SELECT section_id FROM positions WHERE book_id=b.id) last_section,
+        (SELECT new_book_id FROM example_replacements WHERE old_book_id=b.id) replacement_id
         FROM books b ORDER BY created_at''')
 
 @app.get('/api/books/{bid}')
 def book(bid:str):
     b=require_book(bid)
+    replacement=s.one('SELECT new_book_id FROM example_replacements WHERE old_book_id=?',(bid,))
+    b['replacement_id']=replacement['new_book_id'] if replacement else None
     b.pop('file_path',None);b.pop('source',None)
+    pdf=s.one('SELECT * FROM pdf_documents WHERE book_id=?',(bid,))
+    if pdf:
+        b.update({key:json.loads(pdf[key]) for key in ('outline','blank_pages','image_pages')})
+    ebook=s.one('SELECT outline,warnings FROM ebook_documents WHERE book_id=?',(bid,))
+    if ebook:
+        b.update({key:json.loads(ebook[key]) for key in ('outline','warnings')})
     b['sections']=s.all_rows('''SELECT x.id,x.title,x.chapter,x.ordinal,x.page,LENGTH(x.content) chars,
         EXISTS(SELECT 1 FROM marks WHERE section_id=x.id) is_read
         FROM sections x WHERE book_id=? ORDER BY ordinal''',(bid,))
@@ -92,6 +112,7 @@ async def upload(request:Request,file:UploadFile=File(...)):
     try:
         bid,created=await asyncio.to_thread(import_file,file.filename or 'untitled.md',raw,request_language(request))
     except ValueError as e:raise HTTPException(422,str(e))
+    except asyncio.TimeoutError:raise HTTPException(422,'文件整理超时，请拆分后重试。 / Parsing timed out. Please split this file.')
     return {'id':bid,'created':created}
 
 @app.get('/api/books/{bid}/file')
@@ -99,6 +120,15 @@ def original(bid:str):
     b=require_book(bid)
     if not b['file_path']:raise HTTPException(404,'这份资料没有 PDF 原文件')
     return FileResponse(b['file_path'],media_type='application/pdf')
+
+@app.get('/api/books/{bid}/assets/{name}')
+def ebook_asset(bid:str,name:str):
+    require_book(bid)
+    row=s.one('SELECT mime,content FROM book_assets WHERE book_id=? AND name=?',(bid,name))
+    if not row:raise HTTPException(404,'图片不存在 / Image not found')
+    return Response(row['content'],media_type=row['mime'],headers={
+        'X-Content-Type-Options':'nosniff','Cache-Control':'private, no-store',
+        'Content-Security-Policy':"default-src 'none'; sandbox"})
 
 class Position(BaseModel):
     section_id:str
@@ -170,6 +200,15 @@ def edit_artifact(aid:str,body:EditArtifact):
         c.execute('UPDATE artifacts SET title=?,content=? WHERE id=?',(body.title,body.content,aid))
     return {'ok':True}
 
+def public_base_url(request:Request):
+    # Use deployment configuration, never a client-supplied forwarded host.
+    configured=os.getenv('READING_PUBLIC_URL','') or os.getenv('READING_PUBLIC_ORIGINS','').split(',')[0]
+    if configured.strip():
+        url=urlsplit(configured.strip())
+        if url.scheme in ('https','http') and url.netloc and not url.username and not url.password:
+            return f'{url.scheme}://{url.netloc}'
+    return str(request.base_url).rstrip('/')
+
 @app.get('/api/books/{bid}/export/anki')
 def export_anki(bid:str,request:Request):
     require_book(bid)
@@ -180,7 +219,7 @@ def export_anki(bid:str,request:Request):
     def escape(t):return html.escape(t).replace('\n','<br>')
     for row in rows:
         for card in json.loads(row['content']):
-            source=f'{str(request.base_url).rstrip("/")}/?book={bid}&section={card["section_id"]}'
+            source=f'{public_base_url(request)}/?book={bid}&section={card["section_id"]}'
             writer.writerow([card['id'],escape(card['front']),escape(card['back']),f'<a href="{source}">{"View source" if english else "返回原文"}</a>','reading'])
     return Response(output.getvalue(),media_type='text/tab-separated-values; charset=utf-8',headers={'Content-Disposition':'attachment; filename="yuejian-anki.tsv"'})
 
@@ -190,7 +229,7 @@ def export_notes(bid:str,request:Request):
     records=s.all_rows("SELECT * FROM artifacts WHERE book_id=? AND kind<>'cards' ORDER BY created_at",(bid,))
     english=request_language(request)=='en'
     sections={r['id']:r['title'] for r in s.all_rows('SELECT id,title FROM sections WHERE book_id=?',(bid,))}
-    def source_url(sid):return f'{str(request.base_url).rstrip("/")}/?book={bid}&section={sid}'
+    def source_url(sid):return f'{public_base_url(request)}/?book={bid}&section={sid}'
     def linked_content(content):
         # Downloaded Markdown has no /section route. Rewrite real citations,
         # while keeping fenced and inline code examples exactly as authored.
@@ -239,6 +278,7 @@ class RunBody(BaseModel):
     selected_text:str=Field(default='',max_length=5000)
     view_revision:int=Field(default=0,ge=0)
     language:Literal['zh','en']='zh'
+    task_kind:Literal['chat','chapter_summary','section_cards']='chat'
 
 @app.post('/api/runs')
 async def start_run(body:RunBody,request:Request):
@@ -250,17 +290,22 @@ async def start_run(body:RunBody,request:Request):
     except ValueError as e:raise HTTPException(422,str(e))
     old=s.one('SELECT * FROM runs WHERE id=?',(body.id,))
     if old:
-        if any(old[k]!=getattr(body,k) for k in ('book_id','client_id','question','section_id','selected_text','view_revision','language')):raise HTTPException(409,'请求编号已用于另一次提问。')
+        if any(old[k]!=getattr(body,k) for k in ('book_id','client_id','question','section_id','selected_text','view_revision','language','task_kind')):raise HTTPException(409,'请求编号已用于另一次提问。')
         return {'id':old['id'],'status':old['status']}
     try:
         with s.db() as c:
-            c.execute('INSERT INTO runs(id,book_id,client_id,question,status,created_at,selected_text,section_id,view_revision,language) VALUES(?,?,?,?,?,?,?,?,?,?)',
-                      (body.id,body.book_id,body.client_id,body.question,'running',s.now(),body.selected_text,body.section_id,body.view_revision,body.language))
+            c.execute('INSERT INTO runs(id,book_id,client_id,question,status,created_at,selected_text,section_id,view_revision,language,task_kind) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+                      (body.id,body.book_id,body.client_id,body.question,'running',s.now(),body.selected_text,body.section_id,body.view_revision,body.language,body.task_kind))
             c.execute('INSERT INTO messages VALUES(?,?,?,?,?,?,?)',(s.uid(),body.book_id,body.id,'user',body.question,body.section_id,s.now()))
-    except sqlite3.IntegrityError:raise HTTPException(409,'这本资料有一条回答正在进行，请先等待或停止。')
-    task=asyncio.create_task(run_agent(body.id));TASKS[body.id]=task
-    task.add_done_callback(lambda _:TASKS.pop(body.id,None))
+    except sqlite3.IntegrityError:
+        raise HTTPException(409,'这本资料有一条回答正在进行，请先等待或停止。')
+    key=body.id
+    task=asyncio.create_task(bounded_run(body.id));TASKS[key]=task
+    task.add_done_callback(lambda _:TASKS.pop(key,None))
     return {'id':body.id,'status':'running'}
+
+async def bounded_run(rid):
+    await asyncio.wait_for(run_agent(rid),timeout=300)
 
 @app.get('/api/runs/{rid}')
 def get_run(rid:str):
@@ -297,7 +342,8 @@ async def events(rid:str,request:Request,after:int=0):
 async def cancel(rid:str):
     get_run(rid)
     with s.db() as c:c.execute("UPDATE runs SET status='cancelled' WHERE id=? AND status='running'",(rid,))
-    if rid in TASKS:TASKS[rid].cancel()
+    key=rid
+    if key in TASKS:TASKS[key].cancel()
     return {'ok':True}
 
 class Ack(BaseModel):

@@ -24,3 +24,12 @@ Memory is raw per-book conversation plus keyword retrieval and explicitly saved 
 每次问题携带当前位置、选区、近期对话与语言。模型按需使用读取、检索、保存和导航工具；导航必须由目标页面确认执行。原始对话保留，派生笔记按需保存；没有长期后台记忆服务。
 
 工具调用、轮次和等待有预算，Token限额是返回后检查，不是严格的请求前费用上限。取消保留已保存产物；格式异常不算成功回答。引用校验与输出组织不保证模型判断正确。
+
+
+## Current reading/import boundaries
+
+The public edition is single-user and runs on localhost. PDF uses a rendered original page plus selectable extracted text; EPUB/MOBI/AZW3 retain reading order, embedded raster assets and internal section links. TXT remains literal. There is no OCR or visual model input.
+
+Quick chapter summaries and section-card requests carry a frozen source section and task kind. Tool execution checks the allowed write type and source before saving. Navigation applies the page update before acknowledgement, without depending on foreground animation frames. Scroll-to-next-section waits for an additional gesture at the page boundary and pauses during text selection.
+
+当前公开版不包含在线账号服务。快捷小结与制卡在保存前检查目标章节和允许的操作；阅读状态、按需查全书、跳转与返回、保存学习成果仍是同一个工作流。

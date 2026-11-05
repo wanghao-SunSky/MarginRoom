@@ -42,14 +42,14 @@ def test_import_deduplicates_and_preserves_fences(env):
     assert len(rows)==2
     assert '# 这是注释' in client.get('/api/sections/'+rows[0]['id']).json()['content']
 
-def test_pdf_blank_page_reports_gap_and_keeps_original(env):
+def test_pdf_blank_page_is_not_a_missing_text_gap_and_keeps_original(env):
     client,*_=env
     writer=PdfWriter();writer.add_blank_page(width=500,height=700)
     buf=io.BytesIO();writer.write(buf)
     r=client.post('/api/import',files={'file':('scan.pdf',buf.getvalue())})
     assert r.status_code==200
     bid=r.json()['id'];b=client.get('/api/books/'+bid).json()
-    assert b['missing_pages']==1 and b['sections'][0]['page']==1
+    assert b['missing_pages']==0 and b['blank_pages']==[1] and b['sections'][0]['page']==1
     assert client.get('/api/books/'+bid+'/file').content==buf.getvalue()
 
 def test_reading_positions_marks_and_scope(env):

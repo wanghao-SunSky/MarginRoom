@@ -1,4 +1,19 @@
-# v0.1.0 preview checks / 预览版验收
+# 2026-11-05 local edition update / 本地版更新验收
+
+This public snapshot excludes the hosted login, email verification, Google OAuth, account quota, tenant middleware, production settings, and private acceptance records. It starts directly as a single-user local reader; `/?home=1` previews the matching landing page with local-edition entry labels.
+
+- Clean Python lockfile install: **141 backend tests passed, 1 skipped** (the local machine has no native `mobitool`; EPUB tests ran).
+- Clean `npm ci`, **8 frontend tests**, TypeScript and production build passed with Node 22.21.1. Use Node 22.13+ or 24+; installing with an older Node can omit the renderer's optional native build dependency.
+- Browser opened the public package without any account/session API, with two original three-section examples and local storage. Missing API key is shown accurately; reading and manual notes remain available.
+- Coverage includes EPUB images/internal links, PDF structure, TXT preservation, empty heading handling, shortcut target validation, prior-task isolation, source exports, streaming status and scroll gesture boundaries.
+- The shared reading core was also exercised on the hosted service with real DeepSeek: navigate, return, save the current section summary, keep the existing three cards, and export canonical source links. Hosted account modules are not part of this test count or repository.
+- Landing-page source/return, note/card reveal and TSV download were exercised; 390px Chinese and English layouts had no horizontal overflow. The homepage walkthrough is scripted, not a live model run.
+
+Real-phone touch, all trackpad models, long-document stress, high concurrency and Anki desktop import are not certified by these checks. A valid source link does not establish answer correctness.
+
+## Earlier preview evidence
+
+### v0.1.0 preview checks / 预览版验收
 
 Validated on macOS with Chrome, Python 3.12 and Node.js 22. A separate release directory was installed from lockfiles on the same Mac. This is not an independent clean-machine or mobile certification.
 

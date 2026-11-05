@@ -1,27 +1,43 @@
-# A small guide to reading with an AI companion
+# 1. A smaller image. But what gets lost?
 
-This original sample is included with the app. It is not a textbook or a benchmark. Try the workflow here, then import a document you are allowed to use.
+A screenshot of your code looks sharp on your screen, then turns blurry after you share it. This short, three-part read explores why, through two familiar image formats: **PNG and JPEG**. Along the way, try the AI reading partner on the right: ask a question, revisit a passage, and keep what you learn.
 
-## 1. Read a claim before asking for an explanation
+**PNG uses lossless compression**: it stores pixel data more efficiently and restores that data exactly when opened. The large areas of flat color in text, tables, and code screenshots often suit it well. **JPEG usually uses lossy compression**: it discards some image detail to make files smaller. Heavier compression generally means more visible loss.
 
-A claim states something that could be true or false. Evidence is information that helps us assess the claim. An explanation connects the evidence to the claim, including assumptions and limits.
+“Lossless” means no existing pixel data is lost during encoding. It does not mean a blurry image can be repaired. Converting a blurry JPEG to PNG won't bring back the missing detail.
 
-Consider this claim: “Our search change made answers more accurate.” A higher score on a small test set is evidence, but it does not prove that every future answer will improve. The examples may be unrepresentative, or the old system may have been tested with a different budget.
+> **Try it · Ask without copying the passage**
+>
+> “Why is a blurry JPEG still blurry after I convert it to PNG?”
+>
+> The AI can explain using the passage you're reading. Afterwards, try describing “lossless” in your own words.
 
-Select the previous paragraph and ask: “What assumption is missing here?” A useful answer should address that paragraph, not give an entire course on evaluation.
+# 2. Why can photos look fine while text gets fuzzy?
 
-## 2. Separate a result from its interpretation
+A landscape photo and a code screenshot are both images, but their visual features differ. Photos often contain many colors and gradual transitions. Code screenshots contain lots of sharp edges, such as black letters against a white background.
 
-Suppose a baseline answers 7 of 10 questions correctly and a revised system answers 8. The observed difference is one question. Calling that a reliable general improvement requires more information: which questions changed, whether the scoring was consistent, and how representative the sample was.
+**JPEG's lossy compression removes fine image detail.** With light compression, changes in a photo can be hard to spot. With heavier compression, text edges can become blurry or develop halos and blocks. Photos can degrade too; the damage is often easier to notice around text and lines.
 
-The data can support “the revised system did better on this set.” It does not by itself support “the revised system is always better.” Keeping those sentences separate is a practical reading habit.
+That makes PNG a useful first choice for code screenshots, tables, and charts with labels. For photos, JPEG can offer a good balance between file size and image quality.
 
-This example uses invented numbers to explain the distinction. It is not a measured result from this app.
+> **Try it · Find a passage, jump there, then return**
+>
+> First ask: “Where did we read why converting to PNG can't fix a blurry image? Take me back to that section.”
+>
+> Once the page moves there, say: “Take me back to where I was.”
+>
+> You don't need to remember the chapter title or browse the contents again.
 
-## 3. Turn understanding into a note and a card
+# 3. How do you keep shared images clear?
 
-A note records what you now understand, ideally with its source and any unresolved question. A review card asks one answerable question rather than copying a whole paragraph.
+An image format isn't the only reason a shared screenshot can look blurry. Uploading or sending can **resize or recompress** an image. Sometimes only the preview looks poor, and you need to open the original to judge it. Different platforms handle images differently.
 
-Example card question: “Why does a higher score on ten questions not prove a general improvement?” Example answer: “The sample may not represent future tasks; scoring and comparison conditions also need to be checked.”
+A practical starting point: **prefer PNG for text, code, and charts; choose a suitable JPEG quality for photos.** For an important screenshot, try “original quality” or “send as a file” if available, and check the image actually received at the other end.
 
-Try saving a note, creating a review card, then exporting the notes as Markdown or the cards as Anki TSV. The app records explicit read marks; opening a page does not prove understanding.
+Think it through: if a colleague can't read your code screenshot, what would you check first? Knowing a format's name is a start. Using it to explain a problem and make a choice is the next step.
+
+> **Try it · Save a note and flashcards**
+>
+> “Save a note summarizing how to choose between PNG and JPEG, then make two flashcards based on this whole article.”
+>
+> Check and edit the results under Notes and Flashcards on the right. You can also export the cards and import them into Anki for review.

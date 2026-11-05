@@ -119,7 +119,13 @@ def readable_content(text,book_id):
 
 def render(name, args, book_id):
     if name not in FIELDS or not isinstance(args,dict):raise ValueError('回复格式无效')
-    expected=set(FIELDS[name])|({'sources'} if name!='explain_requested_scope' else set())
+    # Missing optional prose is not a failed reading task. Accept a separate
+    # sources list on every presentation, but validate every supplied source.
+    args=dict(args)
+    for field in {'clarify_meaning':('example',),'map_chapter':('boundary',)}.get(name,()):
+        args.setdefault(field,'')
+    args.setdefault('sources',[])
+    expected=set(FIELDS[name])|{'sources'}
     if set(args)!=expected:raise ValueError('回复字段不完整')
     for field in FIELDS[name]:
         if not isinstance(args[field],str):raise ValueError('回复正文必须为文字')

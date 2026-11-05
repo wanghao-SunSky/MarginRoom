@@ -1,0 +1,104 @@
+{
+  "bookTitle": [
+    "数字图像入门",
+    "Digital Images, Explained"
+  ],
+  "chapters": [
+    [
+      "有损与无损",
+      "What Compression Keeps"
+    ],
+    [
+      "常见图片格式",
+      "Image Formats"
+    ],
+    [
+      "保存文字截图",
+      "Saving Screenshots"
+    ]
+  ],
+  "currentTitle": [
+    "截图里的字，怎么变糊了？",
+    "Why Did the Text Go Blurry?"
+  ],
+  "currentParagraphs": [
+    [
+      "同一张文字截图，以较低画质保存为 JPEG 后，字的边缘变得模糊了。",
+      "Save a text screenshot as a low-quality JPEG, and the edges of the letters can turn blurry."
+    ],
+    [
+      "照片有时适合用有损压缩来减小文件。文字截图和图表要保留清晰的线条，可以优先考虑无损保存。",
+      "Lossy compression can work well for photos. For text and diagrams, lossless formats help preserve sharp lines."
+    ]
+  ],
+  "earlierTitle": [
+    "有损和无损，差在哪？",
+    "Lossy or Lossless?"
+  ],
+  "earlierParagraphs": [
+    [
+      "有损压缩会舍弃部分图像信息来缩小文件。丢掉的细节，无法从压缩后的文件中完整还原。",
+      "Lossy compression makes files smaller by discarding some image information. The discarded detail cannot be fully recovered from the compressed file."
+    ],
+    [
+      "无损压缩改变数据的记录方式，不丢弃原有信息。还原后的图像与压缩前一致。",
+      "Lossless compression changes how data is stored without discarding information. The original image can be reconstructed exactly."
+    ]
+  ],
+  "prompt": [
+    "为什么字边会变糊？带我看看前面怎么解释的，再帮我记成笔记和复习卡。",
+    "Why do the letters look blurry? Show me the earlier explanation, then save a note and review cards."
+  ],
+  "answers": [
+    [
+      "阅间知道你在读第三章。点下方按钮，看看它如何查书、带你跳转和整理重点。",
+      "MarginRoom knows you’re in chapter 3. Start the demo to see it find context, navigate, and save what matters."
+    ],
+    [
+      "第一章解释过两种压缩。截图变糊，和这里提到的“丢掉部分信息”有关。",
+      "Chapter 1 explains the two kinds of compression. The blurry text is connected to the information loss described there."
+    ],
+    [
+      "已翻到第一章。对照这两段定义，就能看出：文件变小，不一定意味着细节还在。",
+      "Here is chapter 1. These definitions show why a smaller file may no longer contain all the original detail."
+    ],
+    [
+      "回到第三章了。低画质 JPEG 会丢掉一些细节；想保留字的清晰边缘，可以考虑无损保存。",
+      "You’re back in chapter 3. A low-quality JPEG loses some detail. Lossless formats can preserve the sharp edges of text."
+    ],
+    [
+      "重点已整理好。笔记留着回看，复习卡可以先想答案，再翻开核对。",
+      "Your note and review cards are ready. Keep the note for reference, and try recalling each answer before revealing it."
+    ]
+  ],
+  "noteTitle": [
+    "文字截图，优先保留细节",
+    "Preserve Detail in Text Screenshots"
+  ],
+  "note": [
+    "低画质 JPEG 的有损压缩会丢掉部分细节，可能让字边变糊。文字截图和图表可以优先考虑无损保存。",
+    "Low-quality JPEG compression discards detail and can blur text edges. Consider lossless formats for screenshots and diagrams."
+  ],
+  "cards": [
+    {
+      "q": [
+        "低画质 JPEG 为什么可能让字边变糊？",
+        "Why can a low-quality JPEG blur text edges?"
+      ],
+      "a": [
+        "有损压缩丢掉了部分图像细节，文字边缘也可能受到影响。",
+        "Lossy compression discards image detail, which can affect the edges of letters."
+      ]
+    },
+    {
+      "q": [
+        "有损压缩和无损压缩，最主要的区别是什么？",
+        "What is the main difference between lossy and lossless compression?"
+      ],
+      "a": [
+        "有损压缩会丢弃信息；无损压缩可以完整还原压缩前的数据。",
+        "Lossy compression discards information; lossless compression can reconstruct the original data exactly."
+      ]
+    }
+  ]
+}
