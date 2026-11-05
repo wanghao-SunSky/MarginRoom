@@ -10,6 +10,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DATA = Path(os.getenv('READING_DATA_DIR', ROOT / 'data'))
 
+def data_dir():
+    return DATA
+
 def uid() -> str:
     return uuid.uuid4().hex
 
@@ -18,8 +21,8 @@ def now() -> float:
 
 @contextlib.contextmanager
 def db():
-    DATA.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DATA / 'reading.sqlite', timeout=15)
+    data_dir().mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(data_dir() / 'reading.sqlite', timeout=15)
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA foreign_keys=ON')
     try:
@@ -44,6 +47,17 @@ def init():
           id TEXT PRIMARY KEY,book_id TEXT NOT NULL REFERENCES books(id),
           chapter TEXT NOT NULL,title TEXT NOT NULL,ordinal INTEGER NOT NULL,
           content TEXT NOT NULL,page INTEGER,UNIQUE(book_id,ordinal));
+        CREATE TABLE IF NOT EXISTS example_replacements (
+          old_book_id TEXT PRIMARY KEY REFERENCES books(id),
+          new_book_id TEXT NOT NULL REFERENCES books(id));
+        CREATE TABLE IF NOT EXISTS pdf_documents (
+          book_id TEXT PRIMARY KEY REFERENCES books(id), version INTEGER NOT NULL,
+          outline TEXT NOT NULL, blank_pages TEXT NOT NULL, image_pages TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS ebook_documents (
+          book_id TEXT PRIMARY KEY REFERENCES books(id),outline TEXT NOT NULL,warnings TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS book_assets (
+          book_id TEXT NOT NULL REFERENCES books(id),name TEXT NOT NULL,mime TEXT NOT NULL,
+          content BLOB NOT NULL,PRIMARY KEY(book_id,name));
         CREATE TABLE IF NOT EXISTS positions (
           book_id TEXT PRIMARY KEY REFERENCES books(id),section_id TEXT REFERENCES sections(id),
           updated_at REAL NOT NULL);
@@ -75,6 +89,8 @@ def init():
         ''')
         if 'language' not in {r['name'] for r in c.execute('PRAGMA table_info(runs)')}:
             c.execute("ALTER TABLE runs ADD COLUMN language TEXT NOT NULL DEFAULT 'zh'")
+        if 'task_kind' not in {r['name'] for r in c.execute('PRAGMA table_info(runs)')}:
+            c.execute("ALTER TABLE runs ADD COLUMN task_kind TEXT NOT NULL DEFAULT 'chat'")
         c.execute("UPDATE runs SET status='interrupted',error=CASE WHEN language='en' THEN 'The server restarted before this answer finished. You can ask again.' ELSE '服务已重启，这次回答未完成；可以重新提问。' END WHERE status='running'")
         c.execute("UPDATE commands SET status='expired' WHERE status='pending'")
 

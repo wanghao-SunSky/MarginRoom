@@ -4,7 +4,7 @@ import workerURL from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import {translate,type Language} from './i18n';
 GlobalWorkerOptions.workerSrc = workerURL;
-export default function PdfPage({book, page,language}: {book:string,page:number,language:Language}) {
+export default function PdfPage({book, page,language,onReady}: {book:string,page:number,language:Language,onReady?:()=>void}) {
  const host=useRef<HTMLDivElement>(null),canvas=useRef<HTMLCanvasElement>(null),text=useRef<HTMLDivElement>(null);
  const [error,setError]=useState(''),[width,setWidth]=useState(0);
  useEffect(()=>{let timer:ReturnType<typeof setTimeout>;const observer=new ResizeObserver(entries=>{clearTimeout(timer);timer=setTimeout(()=>setWidth(Math.round(entries[0].contentRect.width)),100);});observer.observe(host.current!);return()=>{clearTimeout(timer);observer.disconnect();};},[]);
@@ -21,6 +21,7 @@ export default function PdfPage({book, page,language}: {book:string,page:number,
    await p.render({canvas:c,viewport,transform:[devicePixelRatio,0,0,devicePixelRatio,0,0]}).promise;
    if(disposed)return;
    const layer=new TextLayer({textContentSource:await p.getTextContent(),container:t,viewport});await layer.render();
+   if(!disposed)onReady?.();
   })().catch(e=>{if(!disposed)setError(String(e.message));});
   return ()=>{disposed=true;void task.destroy();};
  },[book,page,width]);
