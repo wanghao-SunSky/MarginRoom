@@ -4,6 +4,8 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md) · **[Try Online Free (marginroom.app)](https://marginroom.app)**
 
+Try the hosted reader with official Rust Book excerpts and **3 real AI questions, no signup required**. Sign in afterward to keep your reading records.
+
 When you are working through a dense textbook, a technical monograph, or a long paper, what breaks your flow is rarely a single word—it is **losing the thread**. A proof in Chapter 5 quietly relies on a notation introduced in Chapter 2; you follow the algebra line by line, yet lose sight of the problem the chapter is actually trying to solve; you finally conquer a tough section, close the window, and forget half of it by next week. When a chat box sits detached from your reading state, you still end up scrolling back and forth, hunting through the table of contents, and copy-pasting paragraphs just to give an AI enough context to help.
 
 In **MarginRoom**, the Agent actually lives inside the book with you:
