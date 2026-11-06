@@ -10,12 +10,12 @@ def form(name, description, properties):
 SOURCES={'type':'array','items':{'type':'string'},'description':'支持这次解释的真实原文section_id；只用当前书内已取得的来源。'}
 RESPONSE_TOOLS=[
     form('clarify_meaning','读者问词、符号或表述的意思时，以释义解开当前疑问。这是最终回复，程序直接呈现后结束。',{
-        'meaning':{'type':'string','description':'填入“这个词指的是___”中的定义成分：它所指的事物或关系。不是整段回复，不附带价值评价、使用步骤或其他概念。'},
-        'example':{'type':'string','description':'填入“例如原文中的___”中的实例成分，给出原文里对应的那件事或那条返回。不是复述案例的整个过程；没有适合的实例则为空。'},
+        'meaning':{'type':'string','description':'用1–2句直接解释所指的事物或关系。不要铺背景、历史或罗列相关概念。'},
+        'example':{'type':'string','description':'需要时用2–3句给一个最小实例，直接以“比如”带入动作和结果，不铺完整项目。不要加“自造/构造/书中未给”等说明，不冒充真实事件或原文案例。没有必要则为空。'},
         'sources':SOURCES}),
     form('connect_reason','读者追问为什么或纠正一个理解时，补上所问的因果连接。这是最终回复，程序直接呈现后结束。',{
         'cause':{'type':'string','description':'填入“原因是___”中的直接原因或纠正判断，定位这次疑问所指的那个事实。不是整段回复。'},
-        'connection':{'type':'string','description':'把上面的原因连接到读者所问结果的因果关系。只补这个缺口，保留影响该判断的条件；不是案例全程、原理背景或相邻问题的解释。'},
+        'connection':{'type':'string','description':'用2–3句补上原因到结果的关键连接。用户要例子就用一个最小例子替代抽象展开，不重复定义、不罗列延伸知识。只保留改变当前答案的条件。'},
         'sources':SOURCES}),
     form('map_chapter','读者要章节概括或主旨时，建立问题、核心思路与边界的地图，不逐节重讲。这是最终回复，程序直接呈现后结束。',{
         'problem':{'type':'string','description':'本章试图解决的问题或澄清的混淆。'},

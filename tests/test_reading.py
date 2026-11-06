@@ -135,7 +135,7 @@ def test_agent_tools_real_database_and_budget(env):
         calls.append(messages.copy())
         if len(calls)==1:
             return {'role':'assistant','content':None,'tool_calls':[{'id':'call1','type':'function','function':{'name':'read_chapter','arguments':json.dumps({'section_id':sections[0]['id']})}}]}, {'total_tokens':20}
-        evidence=json.loads(messages[-1]['content']);assert evidence['covered']>0
+        evidence=json.loads(next(message['content'] for message in reversed(messages) if message['role']=='tool'));assert evidence['covered']>0
         emit('基于原文的解释。');return {'role':'assistant','content':'基于原文的解释。'}, {'total_tokens':15}
     asyncio.run(agent.run_agent(run['id'],fake))
     assert s.one('SELECT status FROM runs WHERE id=?',(run['id'],))['status']=='complete'
