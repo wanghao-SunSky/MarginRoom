@@ -38,7 +38,7 @@ def test_feedback_grounding_and_confirmed_card_idempotency(env,monkeypatch):
 def test_starters_are_content_language_and_version_bound(env):
     client,bid,_,sections=env;sid=sections[0]['id'];url=f'/api/books/{bid}/learning/starters?section_id={sid}'
     en=client.get(url+'&language=en').json();zh=client.get(url+'&language=zh').json()
-    assert en['questions']!=zh['questions'] and sections[0]['title'] in en['questions'][0]
+    assert en['questions']==zh['questions']==[]
     assert client.get(url+'&language=en').json()==en
     with s.db() as c:c.execute('UPDATE books SET content_hash=? WHERE id=?',('updated',bid))
     assert client.get(url).json()['version']=='updated'
@@ -74,3 +74,22 @@ def test_local_feedback_attempt_limit_stops_model_work(env,monkeypatch):
     monkeypatch.setattr(learning,'model_json',model)
     response=client.post(f'/api/books/{bid}/learning/feedback',json={'section_id':sections[0]['id'],'explanation':'Test explanation','language':'en'})
     assert response.status_code==429 and not called
+
+
+def test_reviewed_starters_and_legacy_cache_are_source_bound(env):
+    import hashlib
+    client,bid,_,sections=env;sid=sections[0]['id']
+    with s.db() as c:
+        c.execute("UPDATE books SET source=? WHERE id=?",('https://github.com/wanghao-SunSky/cs329z-chinese',bid))
+        c.execute("UPDATE sections SET title=? WHERE id=?",('3. Agent 的组成与推理',sid))
+        learning.init_tables(c)
+        source=sections[0]['content'];version=learning.book(bid)['content_hash']
+        old=hashlib.sha256(f'{bid}:{version}:{sid}:zh:{source}'.encode()).hexdigest()
+        c.execute('INSERT INTO learning_cache VALUES(?,?)',(old,json.dumps({'questions':['stale excerpt']})))
+    url=f'/api/books/{bid}/learning/starters?section_id={sid}'
+    zh=client.get(url).json();en=client.get(url+'&language=en').json()
+    assert len(zh['questions'])==len(en['questions'])==1
+    assert '工具调用' in zh['questions'][0] and 'tool call' in en['questions'][0]
+    assert client.get(url).json()==zh
+    with s.db() as c:c.execute("UPDATE sections SET title=? WHERE id=?",('Unreviewed title',sid));c.execute('DELETE FROM learning_cache')
+    assert client.get(url).json()['questions']==[]

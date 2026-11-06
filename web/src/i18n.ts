@@ -4,6 +4,20 @@ export function getLanguage(): Language {
  return saved==='en'||saved==='zh'?saved:(navigator.language.toLowerCase().startsWith('zh')?'zh':'en');
 }
 const english: Record<string,string> = {
+ "返回":"Back",
+ "前进":"Forward",
+ "返回：{title}":"Back to: {title}",
+ "前进：{title}":"Forward to: {title}",
+ "还没有可返回的位置":"No previous reading position",
+ "还没有可前进的位置":"No next reading position",
+ "第 {current} / {total} 页":"Page {current} / {total}",
+ "第 {current} / {total} 节":"Section {current} / {total}",
+ "上一页":"Previous page",
+ "下一页":"Next page",
+ "从这里开始问，也可以让我找回前文。":"Ask about this section, or ask me to find an earlier passage.",
+ "引用：{title}":"Quote: {title}",
+ "当前：{title}":"Current: {title}",
+
  "阅读历史":"Reading history",
  "后退到上一个阅读位置":"Back in reading history",
  "前进到下一个阅读位置":"Forward in reading history",
