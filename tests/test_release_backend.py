@@ -108,7 +108,8 @@ def test_seed_only_uses_bundled_original_examples(env,tmp_path):
     before=len(s.all_rows('SELECT * FROM books'))
     ingest.seed(tmp_path/'workspace')
     after=s.all_rows('SELECT * FROM books')
-    assert len(after)==before+2
+    assert len(after)==before+1
+    assert any(b["title"]=="CS329Z：AI Agent 工程（中文教程）" for b in after)
     assert not s.all_rows("SELECT * FROM sections WHERE content LIKE '%DO NOT IMPORT ME%'")
     ingest.seed(tmp_path/'workspace')
     assert len(s.all_rows('SELECT * FROM books'))==len(after)

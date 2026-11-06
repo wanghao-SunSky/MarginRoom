@@ -367,6 +367,9 @@ class Ack(BaseModel):
 @app.post('/api/commands/{cid}/ack')
 def ack(cid:str,body:Ack):
     with s.db() as c:
+        # Acquire the writer lock before reading pending: concurrent reconnect
+        # acknowledgements must all observe the first terminal receipt.
+        c.execute('BEGIN IMMEDIATE')
         cmd=c.execute('SELECT * FROM commands WHERE id=?',(cid,)).fetchone()
         if not cmd:raise HTTPException(404,'指令不存在')
         if cmd['client_id']!=body.client_id:raise HTTPException(403,'指令不属于这个阅读窗口')

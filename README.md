@@ -4,14 +4,14 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md) · **[Try Online Free (marginroom.app)](https://marginroom.app)**
 
-Try the hosted reader with official Rust Book excerpts and **3 real AI questions, no signup required**. Sign in afterward to keep your reading records.
+The local reader includes **CS329Z: Engineering AI Agents — Chinese course notes**, with 19 lessons plus source and exercise appendices. The hosted reader offers **3 real AI questions without signup**. The notes are an independent Chinese study guide, not an official Stanford translation; [source and rights](examples/cs329z/SOURCE.md).
 
 When you are working through a dense textbook, a technical monograph, or a long paper, what breaks your flow is rarely a single word—it is **losing the thread**. A proof in Chapter 5 quietly relies on a notation introduced in Chapter 2; you follow the algebra line by line, yet lose sight of the problem the chapter is actually trying to solve; you finally conquer a tough section, close the window, and forget half of it by next week. When a chat box sits detached from your reading state, you still end up scrolling back and forth, hunting through the table of contents, and copy-pasting paragraphs just to give an AI enough context to help.
 
 In **MarginRoom**, the Agent actually lives inside the book with you:
 - **Anchored to your open section & selection**: It automatically receives the section or PDF page you have open and the exact passage you highlighted—no copy-pasting required.
 - **Reads across the entire book on demand**: It can inspect the full table of contents, run keyword searches across chapters, pull up any section or whole chapter to verify a claim, and even search your past conversations in the same book.
-- **Drives the reader view with you**: Ask *"Where was this assumption introduced? Take me there,"* and the Agent will locate the earlier chapter, flip your reader directly to that section or page, wait for the page to settle, and explain how the pieces connect. One click brings you right back to where you were reading.
+- **Drives the reader view with you**: Ask *"Where was this assumption introduced? Take me there,"* and the Agent will locate the earlier chapter, flip your reader directly to that section or page, wait for the page to settle, and explain how the pieces connect. Back and Forward restore the reading location you left, including its scroll position.
 - **Distills finished sections into notes & Anki cards**: Just finished a demanding section? Have the Agent turn the core ideas into cited notes or comprehension-focused flashcards—test yourself in place, polish the wording inline, and download an Anki .apkg package or TSV file to import.
 
 ![MarginRoom reading workspace](docs/images/reading-en.jpg)

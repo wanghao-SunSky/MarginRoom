@@ -2,9 +2,10 @@ import {useEffect,useLayoutEffect,useMemo,useRef,useState,type ReactNode,type Re
 import PdfPage from './PdfPage';
 import type {Language} from './i18n';
 import {ReadingExposure} from './reading-exposure';
+import {captureReadingPoint,type ReadingPoint} from './reading-history';
 
 export type ReadingSection={id:string,book_id:string,title:string,chapter:string,ordinal:number,content:string,page:number|null,is_read:number,chars?:number,auto_read_blocked?:number};
-type Props={sections:ReadingSection[],current:ReadingSection,target:{id:string,version:number},root:RefObject<HTMLDivElement|null>,format:string,pdf:boolean,language:Language,continuous:boolean,autoRead:boolean,readingActive:boolean,onAutoRead:(id:string)=>Promise<void>,onCurrent:(section:ReadingSection)=>void,load:(id:string)=>Promise<ReadingSection>,renderText:(section:ReadingSection)=>ReactNode,renderLearning?:(section:ReadingSection)=>ReactNode,onRead:(id:string)=>void};
+type Props={sections:ReadingSection[],current:ReadingSection,target:{id:string,version:number,offset?:number},root:RefObject<HTMLDivElement|null>,format:string,pdf:boolean,language:Language,continuous:boolean,autoRead:boolean,readingActive:boolean,onAutoRead:(id:string)=>Promise<void>,onCurrent:(section:ReadingSection)=>void,onPosition?:(point:ReadingPoint)=>void,onRestored?:(version:number)=>void,load:(id:string)=>Promise<ReadingSection>,renderText:(section:ReadingSection)=>ReactNode,renderLearning?:(section:ReadingSection)=>ReactNode,onRead:(id:string)=>void};
 
 export default function ContinuousReader(props:Props){
  const latest=useRef(props);latest.current=props;
@@ -20,12 +21,28 @@ export default function ContinuousReader(props:Props){
  useLayoutEffect(()=>{
   tracking.current=false;
   const root=props.root.current,el=refs.current.get(props.target.id);if(!root||!el)return;
-  root.scrollTo({top:el.getBoundingClientRect().top-root.getBoundingClientRect().top+root.scrollTop-24,behavior:'instant'});
+  let disposed=false,restored=false,frame=0;
+  const align=(offset:number)=>{const top=el.getBoundingClientRect().top-root.getBoundingClientRect().top+root.scrollTop-24+offset;if(Math.abs(root.scrollTop-top)>1)root.scrollTo({top,behavior:'instant'});};
+  // Bring the section near first; a large saved offset must not jump past an
+  // unloaded placeholder and prevent the target itself from ever loading.
+  align(0);
+  const restore=()=>{frame=0;if(disposed||tracking.current)return;
+   const body=el.querySelector<HTMLElement>('.section-body');
+   if(body?.dataset.ready!=='true'||body.querySelector('[aria-busy="true"], [role="alert"]'))return;
+   if(Array.from(body.querySelectorAll('img')).some(img=>!img.complete))return;
+   align(props.target.offset||0);
+   if(!restored){restored=true;latest.current.onRestored?.(props.target.version);}
+  };
+  const schedule=()=>{if(!frame)frame=requestAnimationFrame(restore);};
+  const mutations=new MutationObserver(schedule);mutations.observe(el,{childList:true,subtree:true,attributes:true,attributeFilter:['data-ready','aria-busy','style']});
+  const resize=new ResizeObserver(schedule);resize.observe(root);resize.observe(el);if(el.parentElement)resize.observe(el.parentElement);
+  root.addEventListener('load',schedule,true);schedule();
+  return()=>{disposed=true;cancelAnimationFrame(frame);mutations.disconnect();resize.disconnect();root.removeEventListener('load',schedule,true);};
  },[props.target.version,props.continuous,props.pdf]);
  useEffect(()=>{
   const root=props.root.current;if(!root)return;let frame=0,generation=0;
   const update=()=>{
-   frame=0;const p=latest.current;if(!p.continuous||!tracking.current)return;
+   frame=0;const p=latest.current;if(!tracking.current)return;const actual=captureReadingPoint(root);if(actual)p.onPosition?.(actual);if(!p.continuous)return;
    const line=root.getBoundingClientRect().top+Math.min(160,root.clientHeight*.25);
    let id=p.sections[0]?.id;
    for(const s of p.sections){const el=refs.current.get(s.id);if(!el)continue;if(el.getBoundingClientRect().top>line)break;id=s.id;}
@@ -33,7 +50,7 @@ export default function ContinuousReader(props:Props){
    void load(id).then(value=>{if(generation===version&&tracking.current&&latest.current.target.version===p.target.version)latest.current.onCurrent(value);}).catch(()=>{/* Per-section retry is visible in the reader. */});
   };
   const scroll=()=>{if(tracking.current&&!frame)frame=requestAnimationFrame(update);};
-  const interact=()=>{tracking.current=true;};
+  const interact=()=>{tracking.current=true;latest.current.onRestored?.(latest.current.target.version);};
   const events=['wheel','touchmove','pointerdown','keydown'];
   const size=new ResizeObserver(()=>root.style.setProperty('--reader-height',`${root.clientHeight}px`));size.observe(root);
   root.style.setProperty('--reader-height',`${root.clientHeight}px`);
