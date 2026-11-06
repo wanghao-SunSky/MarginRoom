@@ -133,7 +133,7 @@ def test_provider_unavailable_finishes_run_with_actionable_error(env,monkeypatch
     monkeypatch.setattr(agent.httpx,'AsyncClient',lambda **kwargs:real_client(transport=transport,**kwargs))
     asyncio.run(agent.run_agent(run['id'],agent.stream_model))
     record=s.one('SELECT status,error FROM runs WHERE id=?',(run['id'],))
-    assert record['status']=='failed' and '官方服务' in record['error']
+    assert record['status']=='failed' and '模型服务' in record['error']
     with s.db() as c:c.execute('INSERT INTO messages VALUES(?,?,?,?,?,?,?)',(s.uid(),bid,run['id'],'user','解释这一节',sections[0]['id'],s.now()))
     history=client.get('/api/books/'+bid+'/messages').json()
     assert history[-1]['run_status']=='failed' and history[-1]['run_error']==record['error']

@@ -2,6 +2,8 @@
 import re
 
 EN = {
+    '模型服务在输出过程中报错，请稍后重试。':'The model provider reported a streaming error. Please try again.',
+    '模型回复未完整结束，请重试。':'The model response did not finish. Please try again.',
     '资料不存在':'Document not found.',
     '段落不存在':'Section not found.',
     '段落不存在或不属于本书':'Section not found in this document.',
@@ -10,7 +12,7 @@ EN = {
     '记录不存在':'Record not found.',
     '内容已变化，请重新打开后编辑。':'This content has changed. Reopen it before editing.',
     '卡片格式或来源无效':'Invalid card format or source.',
-    'DeepSeek 官方 API Key 尚未接入。当前可以导入、阅读、做笔记；接入后即可提问。':'A DeepSeek API key is not configured. You can import, read, and take notes now; configure a key to ask questions.',
+    '模型 API Key 尚未配置。当前可以导入、阅读、做笔记；接入后即可提问。':'A model API key is not configured. You can import, read, and take notes now; configure a key to ask questions.',
     '请求编号已用于另一次提问。':'This request ID was already used for a different question.',
     '这本资料有一条回答正在进行，请先等待或停止。':'A response is already running for this document. Wait or stop it first.',
     '任务不存在':'Run not found.',
@@ -29,18 +31,18 @@ EN = {
     '体验版单份 PDF 最多 600 页，请先拆分。':'PDFs are limited to 600 pages. Split the file before importing it.',
     'PDF 无法解析，请确认文件完整且未加密。':'The PDF could not be parsed. Check that it is complete and unencrypted.',
     '文本需为 UTF-8 编码，请转换后重试。':'Text files must use UTF-8 encoding. Convert the file and try again.',
-    'DeepSeek 本次回答超时，已停止等待。已收到的片段会保留，请稍后重试。':'The DeepSeek response timed out. Received text is retained. Please try again.',
-    '连接 DeepSeek 超时，已停止等待，请稍后重试。':'The connection to DeepSeek timed out. Please try again.',
-    '与 DeepSeek 的连接中断或暂时无法建立，已停止本次回答。请检查网络后重试。':'The connection to DeepSeek was interrupted or could not be established. This response has stopped. Check your connection and try again.',
+    '模型服务本次回答超时，已停止等待。已收到的片段会保留，请稍后重试。':'The model service response timed out. Received text is retained. Please try again.',
+    '连接模型服务超时，已停止等待，请稍后重试。':'The connection to the model service timed out. Please try again.',
+    '与模型服务的连接中断或暂时无法建立，已停止本次回答。请检查网络后重试。':'The connection to the model service was interrupted or could not be established. This response has stopped. Check your connection and try again.',
     '本次已保存的学习记录仍可在笔记或复习卡中查看，无需重新生成。':'Notes or cards already saved in this run remain available in Notes or Cards; you do not need to generate them again.',
-    'DeepSeek 密钥无效，请检查服务端配置。':'The DeepSeek API key is invalid. Check the server configuration.',
-    'DeepSeek 账户余额不足，请在官方平台充值后重试。':'The DeepSeek account has insufficient balance. Check the official platform before retrying.',
-    'DeepSeek 请求频率受限，请稍后重试。':'DeepSeek rate-limited this request. Please try again later.',
-    'DeepSeek 官方服务当前繁忙或暂时不可用，已停止本次请求。请稍后重试。':'DeepSeek is busy or temporarily unavailable. This request has stopped; please try again later.',
-    'DeepSeek 暂无新内容，等待超时，已停止本次回答。已收到的片段会保留，请稍后重试。':'DeepSeek stopped producing new content. This response timed out; received text is retained. Please try again.',
+    '模型服务密钥无效，请检查服务端配置。':'The model service API key is invalid. Check the server configuration.',
+    '模型服务账户余额不足，请在模型服务平台检查余额后重试。':'The model service account has insufficient balance. Check your provider before retrying.',
+    '模型服务请求频率受限，请稍后重试。':'The model service rate-limited this request. Please try again later.',
+    '模型服务当前繁忙或暂时不可用，已停止本次请求。请稍后重试。':'The model service is busy or temporarily unavailable. This request has stopped; please try again later.',
+    '模型服务暂无新内容，等待超时，已停止本次回答。已收到的片段会保留，请稍后重试。':'The model service stopped producing new content. This response timed out; received text is retained. Please try again.',
     '模型混合了回复与操作，已停止；请重试。':'The model mixed a final reply with an operation. This run has stopped; please try again.',
     '回复结构发生变化，已停止；请重试。':'The response format changed unexpectedly. Please try again.',
-    'DeepSeek 回答未完整结束，已保留收到的片段，请重试；这次不会被记作完整回答。':'The DeepSeek response did not finish. Received text is retained, but this is not saved as a complete answer. Please try again.',
+    '模型服务回答未完整结束，已保留收到的片段，请重试；这次不会被记作完整回答。':'The model service response did not finish. Received text is retained, but this is not saved as a complete answer. Please try again.',
     '回复格式未完整结束，请重试。':'The response format is incomplete. Please try again.',
     '这次阅读任务已达到上下文预算，请缩小范围后继续。':'This reading task reached its context budget. Continue with a narrower question.',
     '回复或引用校验未通过，已保留片段，请重试。':'The reply or its references could not be validated. Received text is retained. Please try again.',
@@ -67,8 +69,8 @@ EN = {
 def tr(message, language='zh'):
     if language!='en' or not isinstance(message,str):return message
     if message in EN:return EN[message]
-    match=re.fullmatch(r'DeepSeek 暂时无法完成请求（HTTP (\d+)），请稍后重试。',message)
-    if match:return f'DeepSeek could not complete this request (HTTP {match[1]}). Please try again.'
+    match=re.fullmatch(r'模型服务暂时无法完成请求（HTTP (\d+)），请稍后重试。',message)
+    if match:return f'The model service could not complete this request (HTTP {match[1]}). Please try again.'
     return message
 
 def request_language(request):

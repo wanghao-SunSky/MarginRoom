@@ -5,7 +5,7 @@ flowchart TD
  R[React reader] --> A[FastAPI local server]
  A --> S[SQLite books and learning records]
  A --> L[Bounded agent loop]
- L --> D[Official DeepSeek API]
+ L --> D[Configured model API]
  L --> T[Read search and save tools]
  L --> N[Navigation command]
  N --> R

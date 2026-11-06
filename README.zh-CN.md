@@ -49,12 +49,12 @@
 ## 开始使用（在线即用或本地部署）
 
 - **在线服务（[marginroom.app](https://marginroom.app)）**：打开网页即可使用，无需本地部署或配置 API Key。支持邮箱验证码或 Google 登录，**每人每天提供 50 次免费提问额度**（同时设有服务总量保护）。在线版中的导入资料、阅读进度、笔记、复习卡与对话记录均保存在服务端你的账号下。
-- **开源单人本地版（本仓库）**：运行在你自己的电脑上（`127.0.0.1`），自备 DeepSeek 官方 API Key；书架、阅读位置、笔记、卡片与对话全部保存在本地 SQLite 与 `data/` 目录中（开源本地版不含登录、验证码、OAuth 与账户额度模块）。
+- **开源单人本地版（本仓库）**：运行在你自己的电脑上（`127.0.0.1`），自备 DeepSeek、OpenAI 兼容接口或 Claude API Key；书架、阅读位置、笔记、卡片与对话全部保存在本地 SQLite 与 `data/` 目录中（开源本地版不含登录、验证码、OAuth 与账户额度模块）。
 
 ### 环境要求
 - **Python 3.12+** 与 **[uv](https://docs.astral.sh/uv/getting-started/installation/)**
 - **Node.js 22.13+**（或 Node.js 24+，满足当前 Vite 与 PDF 渲染器要求）与 **npm**
-- 一个 **[DeepSeek 官方 API Key](https://platform.deepseek.com/)**（未配置密钥时依然可以正常导入书籍、阅读与手写笔记；接入密钥后即可开启 AI 共读）
+- 一个 **DeepSeek、OpenAI 兼容接口或 Claude API Key**（未配置密钥时依然可以正常导入书籍、阅读与手写笔记；接入密钥后即可开启 AI 共读）
 
 ### 安装与首次启动
 
@@ -63,9 +63,9 @@
 git clone https://github.com/wanghao-SunSky/MarginRoom.git
 cd MarginRoom
 
-# 1. 安装 Python 依赖并配置 DeepSeek API Key（输入不回显，仅保存在本地服务端 .env）
+# 1. 安装 Python 依赖并配置模型 API（输入不回显，仅保存在本地服务端 .env）
 uv sync
-uv run python scripts/configure_key.py
+uv run python scripts/configure_model.py
 
 # 2. 构建前端界面并启动服务（macOS / Linux 可直接运行 ./scripts/start.sh 一键完成）
 ./scripts/start.sh
@@ -85,7 +85,7 @@ uv run uvicorn backend.app:app --host 127.0.0.1 --port 8765
 
 MOBI/AZW3 本地导入需要 `mobitool`：macOS 安装 `brew install libmobi`，Debian/Ubuntu 安装 `sudo apt-get install libmobi-tools`。EPUB 不需要它。
 
-> **模型配置**：`configure_key.py` 默认写入 `DEEPSEEK_MODEL=deepseek-flash`，你也可以在本地 `.env` 中按自己的 DeepSeek 账户支持情况调整模型名称，或通过 `READING_PORT` 环境变量指定运行端口。
+> **模型配置**：支持 DeepSeek、OpenAI 兼容的 Chat Completions 接口和 Claude 原生 Messages 接口。向导可配置地址、模型 ID、密钥及可选思考强度，也可直接编辑服务端 `.env`；旧的 `DEEPSEEK_*` 配置继续有效。详见[模型配置](docs/model-configuration.md)。通过 `READING_PORT` 可修改本地端口。
 
 ---
 
@@ -124,7 +124,7 @@ MOBI/AZW3 本地导入需要 `mobitool`：macOS 安装 `brew install libmobi`，
 
 - **Agent 如何“读全书”与“看进度”**：Agent 并非在导入时把整本书塞进向量库，也不是每次提问都把百万字硬塞进上下文；它每次自动拿到你**当前所在小节（最多 16,000 字符）、划选文本（最多 5,000 字符）与最近对话**，并在思考时按需调用目录查询、全文关键词检索、小节/整章读取（单章单次读取上限约 46,000 字符，超长会明确告知截断）和本书历史对话检索。阅读进度来自你主动点击的「标记本节已读」，位置精确到当前打开的小节或 PDF 页码。
 - **支持的文件格式与 PDF 说明**：目前支持 **PDF、EPUB、MOBI、AZW3、Markdown、UTF-8 TXT**（单文件最大 20 MB；无密码 PDF 本地最多 600 页、在线版最多 200 页）。EPUB/Kindle 电子书保留阅读顺序、目录、常见位图和内部链接；仅支持未加密的流式书籍，不保留整套原书 CSS。PDF 会按页提取文本并提供原版页面渲染，但**暂不支持扫描件 OCR 与图片/图表视觉解析**；遇到纯图页时界面会明确提示，你仍可切换原版 PDF 视图阅读。
-- **隐私与数据去向**：开源本地版无账号体系、无第三方统计或遥测，仅绑定本机 `127.0.0.1`（请勿直接暴露到公网），API Key 保存在本地服务端 `.env` 中，仅在你主动提问时将当前阅读上下文与检索到的书内片段发往 DeepSeek 官方接口。在线服务（`marginroom.app`）会将你上传的书籍资料、笔记、卡片与对话记录保存在账号服务端，提问时由服务端将相关文本片段发送给 DeepSeek 处理。详见 [架构说明](docs/architecture.md) 与 [安全与隐私说明](SECURITY.md)。
+- **隐私与数据去向**：开源本地版无账号体系、无第三方统计或遥测，仅绑定本机 `127.0.0.1`（请勿直接暴露到公网），API Key 保存在本地服务端 `.env` 中，仅在你主动提问时将当前阅读上下文与检索到的书内片段发往所配置的模型服务。在线服务（`marginroom.app`）会将你上传的书籍资料、笔记、卡片与对话记录保存在账号服务端，提问时由服务端将相关文本片段发送给所配置的模型服务处理。详见 [架构说明](docs/architecture.md) 与 [安全与隐私说明](SECURITY.md)。
 
 ## 开发与校验
 
