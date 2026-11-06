@@ -13,6 +13,7 @@ import {selectedReadingText} from './selection';
 import LearningPanel from './LearningPanel';
 import {captureAnchor,anchorRange,relatedHistory,type Anchor} from './learning-anchors';
 import {showIncomplete} from './page-turn';
+import {captureReadingPoint,currentPoint,point,replacePoint,restoreHistory,samePoint,stepHistory,visitPoint,type ReadingHistory,type ReadingPoint} from './reading-history';
 import {getLanguage,translate,type Language} from './i18n';
 
 type Book={id:string,title:string,subtitle:string,format:string,color:string,section_count:number,read_count:number,chapter_count:number,last_section?:string,missing_pages:number,replacement_id?:string|null};
@@ -46,7 +47,7 @@ export default function App(){
  const [busy,setBusy]=useState(''),[stream,setStream]=useState(''),[trace,setTrace]=useState<string[]>([]),[error,setError]=useState(''),[importError,setImportError]=useState(''),[notice,setNotice]=useState('');
  const [uploading,setUploading]=useState(false),[pdf,setPdf]=useState(true),[editing,setEditing]=useState<Artifact|null>(null),[editText,setEditText]=useState(''),[editTitle,setEditTitle]=useState('');
  const [historyQuery,setHistoryQuery]=useState(''),[historyResults,setHistoryResults]=useState<Message[]|null>(null),[revealed,setRevealed]=useState<Set<string>>(new Set());
- const view=useRef({book:'',section:'',revision:Number(sessionStorage.getItem('reading-revision')||0)}),stack=useRef<string[]>([]),streamRef=useRef<{close:()=>void}|null>(null),active=useRef('');
+ const view=useRef({book:'',section:'',revision:Number(sessionStorage.getItem('reading-revision')||0)}),streamRef=useRef<{close:()=>void}|null>(null),active=useRef('');
  const paper=useRef<HTMLDivElement>(null),chatScroll=useRef<HTMLDivElement>(null),composer=useRef<HTMLTextAreaElement>(null),file=useRef<HTMLInputElement>(null),navPending=useRef(new Set<string>());
  const follow=useRef(true),lastChatTop=useRef(0),quoteSection=useRef('');
  const positionWrites=useRef<Promise<unknown>>(Promise.resolve());
@@ -56,7 +57,11 @@ export default function App(){
  const [autoRead,setAutoRead]=useState(()=>localStorage.getItem('reading-auto-read')!=='off');
  const readVersions=useRef(new Map<string,number>()),readRefresh=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
  const [continuous,setContinuous]=useState(()=>localStorage.getItem('reading-layout')!=='paged');
- const [readerTarget,setReaderTarget]=useState({id:'',version:0});
+ const [readerTarget,setReaderTarget]=useState({id:'',version:0,offset:0});
+ const readingHistory=useRef<ReadingHistory>({version:1,book:'',entries:[],index:-1}),committedHistory=useRef(readingHistory.current);
+ const readerRestoring=useRef(false),restoringVersion=useRef(0);
+ const navigationPending=useRef<number|null>(null),validSections=useRef<Set<string>>(new Set());
+ const [,renderHistory]=useState(0);
  const positionTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
  const [streamStatus,setStreamStatus]=useState('');
  const [anchors,setAnchors]=useState<Anchor[]>([]),[starters,setStarters]=useState<string[]>([]),[dismissed,setDismissed]=useState<Set<string>>(new Set());
@@ -70,15 +75,19 @@ export default function App(){
   const observer=new MutationObserver(records=>{if(records.every(r=>(r.target instanceof Element?r.target:r.target.parentElement)?.closest('.note-underlines')))return;if(!scheduled){scheduled=true;requestAnimationFrame(refresh);}});observer.observe(root,{childList:true,subtree:true});const resize=new ResizeObserver(()=>{if(!scheduled){scheduled=true;requestAnimationFrame(refresh);}});resize.observe(root);root.addEventListener('load',refresh,true);refresh();
   const click=(e:MouseEvent)=>{if(window.getSelection()?.toString())return;const hit=highlightRanges.current.find(x=>Array.from(x.range.getClientRects()).some(r=>e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom));if(hit){setTab('notes');setMobile('chat');requestAnimationFrame(()=>document.getElementById('note-'+hit.anchor.artifact_id)?.scrollIntoView({block:'center'}));}};root.addEventListener('click',click);return()=>{observer.disconnect();resize.disconnect();root.removeEventListener('load',refresh,true);root.removeEventListener('click',click);registry?.delete('saved-notes');};
  },[anchors,book?.id,pdf,continuous]);
- function changeReadingMode(value:string){const next=value==='continuous';localStorage.setItem('reading-layout',value);setContinuous(next);setReaderTarget(v=>({id:view.current.section,version:v.version+1}));}
- function targetReader(id:string){clearTimeout(positionTimer.current);setReaderTarget(v=>({id,version:v.version+1}));}
+ function changeReadingMode(value:string){const next=value==='continuous';localStorage.setItem('reading-layout',value);setContinuous(next);targetReader(view.current.section,currentPoint(committedHistory.current)?.offset||0);}
+ function targetReader(id:string,offset=0){clearTimeout(positionTimer.current);readerRestoring.current=true;const version=++restoringVersion.current;setReaderTarget({id,offset,version});}
+ const historyKey=(bid:string)=>'reading-history-v1-'+CLIENT+'-'+bid;
+ function saveHistory(next:ReadingHistory,committed=true){readingHistory.current=next;if(committed)committedHistory.current=next;try{sessionStorage.setItem(historyKey(next.book),JSON.stringify(next));}catch{/* Reading remains available when storage is full. */}renderHistory(v=>v+1);}
+ function recordReadingPoint(next:ReadingPoint,userScroll=true){if(navigationPending.current!==null||!validSections.current.has(next.section)||committedHistory.current.book!==view.current.book)return;if(samePoint(currentPoint(committedHistory.current),next))return;if(userScroll)bump();saveHistory(replacePoint(committedHistory.current,next));}
+ function captureDeparture(){if(navigationPending.current===null&&!readerRestoring.current){const actual=captureReadingPoint(paper.current);if(actual)recordReadingPoint(actual,false);}}
  function visibleSection(next:Section){
-  if(next.book_id!==view.current.book||next.id===view.current.section)return;
+  if(navigationPending.current!==null||next.book_id!==view.current.book||next.id===view.current.section)return;
   bump();view.current.section=next.id;setSection(next);setCollapsed(v=>{const n=new Set(v);n.delete(next.chapter);return n;});setBooks(rows=>rows.map(b=>b.id===next.book_id?{...b,last_section:next.id}:b));
   history.replaceState(null,'',`?book=${next.book_id}&section=${next.id}`);
   clearTimeout(positionTimer.current);positionTimer.current=setTimeout(()=>{void persistPosition(next.book_id,next.id).catch(showError);},350);
  }
- useEffect(()=>()=>{clearTimeout(positionTimer.current);clearTimeout(readRefresh.current);},[]);
+ useEffect(()=>{const leave=()=>captureDeparture();window.addEventListener('pagehide',leave);return()=>{window.removeEventListener('pagehide',leave);clearTimeout(positionTimer.current);clearTimeout(readRefresh.current);};},[]);
  function pauseReading(){follow.current=false;setReadingPaused(true);}
  function followLatest(){follow.current=true;setReadingPaused(false);const el=chatScroll.current;if(el){el.scrollTop=el.scrollHeight;lastChatTop.current=el.scrollTop;}}
  function clearSelection(){quoteSection.current='';setSelection('');setHighlighted(false);window.getSelection()?.removeAllRanges();}
@@ -87,48 +96,56 @@ export default function App(){
  function openLibrary(){clearSelection();setLibrary(true);void refreshLibrary().catch(showError);}
  function closeEditor(){if(savingRef.current)return;setEditing(null);clearSelection();}
  useEffect(()=>{const update=()=>{const text=selectedReadingText(paper.current,window.getSelection());setHighlighted(!!text);if(text)selectionOwner();else quoteSection.current='';setSelection(text);};document.addEventListener('selectionchange',update);return()=>document.removeEventListener('selectionchange',update);},[]);
- const stacksKey=(bid:string)=>'return-'+CLIENT+'-'+bid;
  function bump(){view.current.revision++;sessionStorage.setItem('reading-revision',String(view.current.revision));}
- function saveStack(){sessionStorage.setItem(stacksKey(view.current.book),JSON.stringify(stack.current));}
  async function refreshLibrary(){const rows=await api<Book[]>('/books');setBooks(rows);return rows;}
  async function refreshRecords(bid:string){if(view.current.book!==bid)return;const version=++recordsVersion.current;const [ms,as]=await Promise.all([api<Message[]>(`/books/${bid}/messages`),api<Artifact[]>(`/books/${bid}/artifacts`)]);if(view.current.book===bid&&recordsVersion.current===version){setMessages(ms);setArtifacts(as);}return ms;}
  function showError(e:unknown){setError(e instanceof Error?e.message:String(e));}
  async function openBook(bid:string,sid?:string){
-  clearTimeout(positionTimer.current);followLatest();streamRef.current?.close();active.current='';setBusy('');setStream('');setTrace([]);bump();view.current.book=bid;view.current.section='';setBook(null);setSection(null);setMessages([]);setArtifacts([]);setAnchors([]);setCoverage(null);setProgress([]);clearSelection();searchVersion.current++;setHistoryResults(null);setHistoryQuery('');setQuery('');setError('');
-  try{const b=await api<Detail>('/books/'+bid);if(view.current.book!==bid)return;setBook(b);setCollapsed(new Set(b.sections.map(x=>x.chapter).filter((_,i)=>i>0)));stack.current=JSON.parse(sessionStorage.getItem(stacksKey(bid))||'[]');
-   const target=(b.sections.some(x=>x.id===sid)?sid:undefined)||books.find(x=>x.id===bid)?.last_section||b.sections[0]?.id;if(target)await go(target,false);
+  captureDeparture();navigationPending.current=null;validSections.current=new Set();clearTimeout(positionTimer.current);followLatest();streamRef.current?.close();active.current='';setBusy('');setStream('');setTrace([]);bump();view.current.book=bid;view.current.section='';setBook(null);setSection(null);setMessages([]);setArtifacts([]);setAnchors([]);setCoverage(null);setProgress([]);clearSelection();searchVersion.current++;setHistoryResults(null);setHistoryQuery('');setQuery('');setError('');
+  try{const b=await api<Detail>('/books/'+bid);if(view.current.book!==bid)return;setBook(b);setCollapsed(new Set(b.sections.map(x=>x.chapter).filter((_,i)=>i>0)));validSections.current=new Set(b.sections.map(s=>s.id));
+   const fallback=(b.sections.some(x=>x.id===sid)?sid:undefined)||books.find(x=>x.id===bid)?.last_section||b.sections[0]?.id;
+   if(fallback){let restored=restoreHistory(sessionStorage.getItem(historyKey(bid)),bid,validSections.current,point(fallback),sessionStorage.getItem('return-'+CLIENT+'-'+bid));if(sid&&validSections.current.has(sid)&&currentPoint(restored)?.section!==sid)restored=visitPoint(restored,point(sid));saveHistory(restored);await applyReadingHistory(restored);}
    await refreshRecords(bid);void api<Anchor[]>(`/books/${bid}/learning/anchors`).then(a=>{if(view.current.book===bid)setAnchors(a);}).catch(showError);if(view.current.book!==bid)return;setLibrary(false);setLeft(false);
    const run=sessionStorage.getItem('run-'+bid);if(run){const r=await api('/runs/'+run);if(view.current.book!==bid)return;if(r.status==='running')connect(run,bid);else{sessionStorage.removeItem('run-'+bid);if(r.error)setError(r.error);}}
   }catch(e){showError(e);}
  }
- async function go(sid:string,push=true){
-  const bid=view.current.book,old=view.current.section;bump();const rev=view.current.revision;
-  try{const next=await api<Section>('/sections/'+sid);if(next.book_id!==bid||view.current.book!==bid||view.current.revision!==rev)return false;
-   if(push&&old&&old!==sid){stack.current.push(old);saveStack();}
-   view.current.section=sid;setSection(next);targetReader(sid);setBooks(rows=>rows.map(b=>b.id===bid?{...b,last_section:sid}:b));clearSelection();setLeft(false);setCollapsed(v=>{const n=new Set(v);n.delete(next.chapter);return n;});
-   history.replaceState(null,'',`?book=${bid}&section=${sid}`);
-   await persistPosition(bid,sid);return true;
-  }catch(e){showError(e);return false;}
+ async function applyReadingHistory(nextHistory:ReadingHistory){
+  const bid=view.current.book,target=currentPoint(nextHistory);if(!target||nextHistory.book!==bid)return null;
+  bump();const revision=view.current.revision;navigationPending.current=revision;saveHistory(nextHistory,false);
+  try{const next=await api<Section>('/sections/'+target.section);
+   if(next.book_id!==bid||view.current.book!==bid||view.current.revision!==revision||navigationPending.current!==revision){if(view.current.book===bid&&navigationPending.current===revision){navigationPending.current=null;saveHistory(committedHistory.current);}return null;}
+   view.current.section=target.section;navigationPending.current=null;saveHistory(nextHistory);
+   // Commit this exact navigation before returning an Agent acknowledgement.
+   // Scroll restoration waits for the real section/page rather than placeholders.
+   flushSync(()=>{setSection(next);targetReader(target.section,target.offset);});
+   setBooks(rows=>rows.map(b=>b.id===bid?{...b,last_section:target.section}:b));clearSelection();setLeft(false);setMobile('read');setCollapsed(v=>{const n=new Set(v);n.delete(next.chapter);return n;});
+   history.replaceState(null,'',`?book=${bid}&section=${target.section}`);void persistPosition(bid,target.section).catch(showError);
+   return {section:target.section,revision};
+  }catch(e){if(view.current.book===bid&&navigationPending.current===revision){navigationPending.current=null;saveHistory(committedHistory.current);showError(e);}return null;}
  }
- async function back(){const id=stack.current.at(-1);if(!id){setNotice(t('还没有可返回的阅读位置'));return;}if(await go(id,false)){stack.current.pop();saveStack();}}
+ async function go(sid:string){
+  if(!validSections.current.has(sid))return false;captureDeparture();const next=visitPoint(committedHistory.current,point(sid));
+  if(next===committedHistory.current&&navigationPending.current===null)return true;
+  return !!await applyReadingHistory(next);
+ }
+ async function travel(direction:-1|1){
+  captureDeparture();const next=stepHistory(readingHistory.current,direction);if(!next)return null;return applyReadingHistory(next);
+ }
  async function handleNavigation(cmd:Command,bid:string){
   if(cmd.client_id!==CLIENT||navPending.current.has(cmd.id))return;navPending.current.add(cmd.id);
-  const cache=sessionStorage.getItem('ack-'+cmd.id);if(cache){try{await api(`/commands/${cmd.id}/ack`,JSON.parse(cache));}finally{navPending.current.delete(cmd.id);}return;}
-  let status='stale',ackRevision=view.current.revision;let target=cmd.action==='return_to'?stack.current.at(-1):cmd.section_id;
-  if(view.current.book===bid&&view.current.revision===cmd.expected_revision){
-   if(!target)status='empty_stack';else{
-    try{const next=await api<Section>('/sections/'+target);
-     if(view.current.book===bid&&view.current.revision===cmd.expected_revision&&next.book_id===bid){
-      const old=view.current.section;bump();const appliedRev=view.current.revision;view.current.section=target;
-      // Commit the reader DOM without waiting for animation frames, which
-      // browsers suspend in background tabs. Acknowledge this exact revision.
-      flushSync(()=>{setSection(next);targetReader(target!);});setBooks(rows=>rows.map(b=>b.id===bid?{...b,last_section:target}:b));clearSelection();setCollapsed(v=>{const n=new Set(v);n.delete(next.chapter);return n;});
-      if(view.current.revision===appliedRev){status='applied';ackRevision=appliedRev;if(cmd.action==='return_to')stack.current.pop();else if(old!==target)stack.current.push(old);saveStack();history.replaceState(null,'',`?book=${bid}&section=${target}`);await persistPosition(bid,target);setNotice(cmd.action==='return_to'?t('已回到之前的位置'):t('已跳转 · 可以随时返回'));}
-     }
-    }catch{status='stale';}
+  try{
+   const cache=sessionStorage.getItem('ack-'+cmd.id);if(cache){await api(`/commands/${cmd.id}/ack`,JSON.parse(cache));return;}
+   captureDeparture();let status='stale',result:{section:string,revision:number}|null=null;
+   if(view.current.book===bid&&view.current.revision===cmd.expected_revision&&navigationPending.current===null){
+    if(cmd.action==='return_to'){
+     const previous=stepHistory(readingHistory.current,-1);if(!previous)status='empty_stack';else result=await applyReadingHistory(previous);
+    }else if(validSections.current.has(cmd.section_id))result=await applyReadingHistory(visitPoint(committedHistory.current,point(cmd.section_id)));
+    if(result)status='applied';
    }
-  }
-  const ack={client_id:CLIENT,status,section_id:status==='applied'?target:null,view_revision:ackRevision};sessionStorage.setItem('ack-'+cmd.id,JSON.stringify(ack));try{await api(`/commands/${cmd.id}/ack`,ack);}finally{navPending.current.delete(cmd.id);}
+   const ack={client_id:CLIENT,status,section_id:result?.section||null,view_revision:result?.revision??view.current.revision};
+   sessionStorage.setItem('ack-'+cmd.id,JSON.stringify(ack));await api(`/commands/${cmd.id}/ack`,ack);
+   if(result)setNotice(cmd.action==='return_to'?t('已回到之前的位置'):t('已跳转 · 可以随时返回'));
+  }finally{navPending.current.delete(cmd.id);}
  }
  function connect(rid:string,bid:string){
   streamRef.current?.close();active.current=rid;setBusy(rid);setStream(sessionStorage.getItem('stream-'+rid)||'');setStreamStatus('running');setTrace([]);setProgress([]);setCoverage(JSON.parse(sessionStorage.getItem('coverage-'+rid)||'null'));lastProgress.current=Date.now();setIdleSeconds(0);sessionStorage.setItem('run-'+bid,rid);
@@ -151,7 +168,7 @@ export default function App(){
   es.onerror=(event)=>{if('data' in event)return;if(active.current===rid)setNotice(t('连接中断，正在恢复回答；也可以停止本次请求。'));};
  }
  async function send(text=draft,task_kind='chat'){
-  if(!text.trim()||busy||!section||!book)return;followLatest();lastProgress.current=Date.now();setIdleSeconds(0);setBusy('pending');setStream('');setTrace([]);setStreamStatus('running');setError('');setNotice('');setTab('chat');setMobile('chat');
+  if(!text.trim()||busy||!section||!book)return;captureDeparture();followLatest();lastProgress.current=Date.now();setIdleSeconds(0);setBusy('pending');setStream('');setTrace([]);setStreamStatus('running');setError('');setNotice('');setTab('chat');setMobile('chat');
   const bid=book.id,rid=uid(),question=text.trim();
   try{await api('/runs',{id:rid,book_id:bid,section_id:selection?(quoteSection.current||view.current.section):view.current.section,client_id:CLIENT,question,selected_text:selection,language,task_kind,view_revision:view.current.revision});sessionStorage.setItem('run-'+bid,rid);if(view.current.book!==bid)return;setDraft('');clearSelection();await refreshRecords(bid);if(view.current.book===bid)connect(rid,bid);}catch(e){if(view.current.book===bid){setBusy('');showError(e);}}
  }
@@ -182,7 +199,7 @@ export default function App(){
  }
  async function searchHistory(){if(!book)return;const bid=book.id,version=++searchVersion.current;try{const rows=await api<Message[]>(`/books/${bid}/history?q=${encodeURIComponent(historyQuery)}`);if(view.current.book===bid&&version===searchVersion.current)setHistoryResults(rows);}catch(e){if(view.current.book===bid&&version===searchVersion.current)showError(e);}}
 
- useEffect(()=>{void (async()=>{try{const [list,status]=await Promise.all([refreshLibrary(),api('/status')]);setConfigured(status.configured);setModelLabel([status.model_label||status.model,status.reasoning_effort?status.reasoning_effort[0].toUpperCase()+status.reasoning_effort.slice(1):''].filter(Boolean).join(' · '));const q=new URLSearchParams(location.search);const b=list.find(x=>x.id===q.get('book'))||list.find(x=>x.last_section&&!x.replacement_id)||list.find(x=>x.title===(language==='zh'?'和 AI 一起阅读':'Reading with AI'))||list[0];if(b)await openBook(b.id,q.get('section')||b.last_section);else setLibrary(true);}catch(e){showError(e);}})();return()=>streamRef.current?.close();},[]);
+ useEffect(()=>{void (async()=>{try{const [list,status]=await Promise.all([refreshLibrary(),api('/status')]);setConfigured(status.configured);setModelLabel([status.model_label||status.model,status.reasoning_effort?status.reasoning_effort[0].toUpperCase()+status.reasoning_effort.slice(1):''].filter(Boolean).join(' · '));const q=new URLSearchParams(location.search);const b=list.find(x=>x.id===q.get('book'))||list.find(x=>x.last_section&&!x.replacement_id)||list.find(x=>x.title==='CS329Z：AI Agent 工程（中文教程）')||list.find(x=>x.title===(language==='zh'?'和 AI 一起阅读':'Reading with AI'))||list[0];if(b)await openBook(b.id,q.get('section')||b.last_section);else setLibrary(true);}catch(e){showError(e);}})();return()=>streamRef.current?.close();},[]);
  useEffect(()=>{if(!busy)return;const timer=setInterval(()=>setIdleSeconds(Math.floor((Date.now()-lastProgress.current)/1000)),1000);return()=>clearInterval(timer);},[busy]);
  useLayoutEffect(()=>{
   const el=chatScroll.current;if(!el||historyResults)return;
@@ -214,7 +231,7 @@ export default function App(){
     <div className="outline-bottom"><span className="status-dot"/>{t('位置自动保存')}<span>{t('本机存储')}</span></div>
    </aside>
    <main className="reader">
-    <div className="reader-toolbar"><div className="breadcrumb">{button(t('显示目录'),<BookOpen size={17}/>,()=>setLeft(!left))}<span>{section?.chapter||t('阅读，从一个问题开始')}</span></div><div className="reader-controls"><ReadingSettings language={language} continuous={continuous} onMode={changeReadingMode} autoRead={autoRead} onAutoRead={()=>setAutoRead(value=>{localStorage.setItem('reading-auto-read',value?'off':'on');return !value;})} open={readingSettings} onOpen={setReadingSettings}/>{button(t('返回阅读位置'),<ArrowLeft size={16}/>,()=>void back(),!stack.current.length)}<span>{section?currentIndex+1:0}<i> / {book?.sections.length||0}</i></span>{button(t('上一节'),<ChevronRight className="rotate" size={17}/>,()=>void go(book!.sections[currentIndex-1].id,false),!book||currentIndex<=0)}{button(t('下一节'),<ChevronRight size={17}/>,()=>void go(book!.sections[currentIndex+1].id,false),!book||currentIndex>=book.sections.length-1)}</div></div>
+    <div className="reader-toolbar"><div className="breadcrumb">{button(t('显示目录'),<BookOpen size={17}/>,()=>setLeft(!left))}<span>{section?.chapter||t('阅读，从一个问题开始')}</span></div><div className="reader-controls"><ReadingSettings language={language} continuous={continuous} onMode={changeReadingMode} autoRead={autoRead} onAutoRead={()=>setAutoRead(value=>{localStorage.setItem('reading-auto-read',value?'off':'on');return !value;})} open={readingSettings} onOpen={setReadingSettings}/><div className="reading-history-controls" role="group" aria-label={t('阅读历史')}>{button(t('后退到上一个阅读位置'),<ArrowLeft size={16}/>,()=>void travel(-1),readingHistory.current.index<=0)}{button(t('前进到下一个阅读位置'),<ArrowRight size={16}/>,()=>void travel(1),readingHistory.current.index>=readingHistory.current.entries.length-1)}</div><span>{section?currentIndex+1:0}<i> / {book?.sections.length||0}</i></span>{button(t('上一节'),<ChevronRight className="rotate" size={17}/>,()=>void go(book!.sections[currentIndex-1].id),!book||currentIndex<=0)}{button(t('下一节'),<ChevronRight size={17}/>,()=>void go(book!.sections[currentIndex+1].id),!book||currentIndex>=book.sections.length-1)}</div></div>
     {book?.replacement_id&&<div className="example-update"><span>{t('这份入门示例已有新版，旧笔记与讨论保留在这里。')}</span><button onClick={()=>void openBook(book.replacement_id!)}>{t('打开新版入门')} <ArrowRight size={15}/></button></div>}
     <div className="paper-scroll" ref={paper} tabIndex={0} aria-label={t('阅读正文')} onMouseUp={captureSelection} onTouchEnd={captureSelection} onKeyUp={captureSelection}>
      <div className="note-underlines" aria-hidden="true">{underlines.map((u,i)=><span key={u.id+i} style={{left:u.left,top:u.top,width:u.width}}/>)}</div>
@@ -224,9 +241,9 @@ export default function App(){
       {!!book.missing_pages&&<details className="pdf-coverage"><summary>{language==='zh'?`${book.missing_pages} 页没有可提取文字`:`${book.missing_pages} pages have no extractable text`}</summary><p>{t('这份 PDF 有 {count} 页未提取到文字，AI 无法阅读这些页面。原版仍可查看。',{count:book.missing_pages})}</p></details>}
       {book.format==='pdf'&&!pdf&&<p className="pdf-text-hint">{language==='zh'?'文字视图不包含图表，可切换原版 PDF 对照。':'Text view does not include figures. Switch to the original PDF to view them.'}</p>}
       {section&&relatedHistory(section,[...messages.filter(m=>m.role==='user').map(m=>({...m,historyKind:'question'})),...artifacts.filter(a=>a.kind==='note').map(a=>({...a,historyKind:'note'}))]).filter(m=>!dismissed.has(m.id)).map(m=>{const i=messages.findIndex(x=>x.id===m.id);return <div className="history-reminder" key={m.id}><button onClick={()=>{pauseReading();if(m.historyKind==='note'){setTab('notes');requestAnimationFrame(()=>document.getElementById('note-'+m.id)?.scrollIntoView({block:'center'}));}else{setHistoryResults(messages.slice(i,i+2));setTab('chat');}setMobile('chat');}}>{m.historyKind==='note'?(language==='zh'?'你曾记下：':'You noted: '):(language==='zh'?'你曾问过：':'You asked: ')}{m.content.replace(/^>\s*/gm,'').slice(0,90)}</button><button aria-label={language==='zh'?'关闭提醒':'Dismiss reminder'} onClick={()=>setDismissed(v=>new Set([...v,m.id]))}><X size={13}/></button></div>;})}
-      {(()=>{const reader=<ContinuousReader key={book.id} root={paper} sections={book.sections} current={section} target={readerTarget} continuous={continuous} autoRead={autoRead} readingActive={!library&&!editing&&!readingSettings} onAutoRead={id=>setRead(id,true,'auto')} pdf={pdf} format={book.format} language={language} onCurrent={visibleSection} load={id=>api<Section>('/sections/'+id)} onRead={id=>void markRead(id).catch(showError)} renderLearning={item=><LearningPanel key={item.id+language} book={book.id} section={item.id} language={language} request={api} onSaved={()=>void refreshRecords(book.id)}/>} renderText={item=>book.format==='text'?<div className="book-text plain-text">{item.content}</div>:item.content?md(item.content,'book-text'):<p className="pdf-blank">{language==='zh'?'本页没有可提取文字，请查看原版 PDF。':'No extractable text on this page. View the original PDF.'}</p>}/>;return book.format==='pdf'?<PdfDocument key={book.id} book={book.id}>{reader}</PdfDocument>:reader;})()}
+      {(()=>{const reader=<ContinuousReader key={book.id} root={paper} sections={book.sections} current={section} target={readerTarget} continuous={continuous} autoRead={autoRead} readingActive={!library&&!editing&&!readingSettings} onAutoRead={id=>setRead(id,true,'auto')} pdf={pdf} format={book.format} language={language} onCurrent={visibleSection} onPosition={recordReadingPoint} onRestored={version=>{if(version===restoringVersion.current)readerRestoring.current=false;}} load={id=>api<Section>('/sections/'+id)} onRead={id=>void markRead(id).catch(showError)} renderLearning={item=><LearningPanel key={item.id+language} book={book.id} section={item.id} language={language} request={api} onSaved={()=>void refreshRecords(book.id)}/>} renderText={item=>book.format==='text'?<div className="book-text plain-text">{item.content}</div>:item.content?md(item.content,'book-text'):<p className="pdf-blank">{language==='zh'?'本页没有可提取文字，请查看原版 PDF。':'No extractable text on this page. View the original PDF.'}</p>}/>;return book.format==='pdf'?<PdfDocument key={book.id} book={book.id}>{reader}</PdfDocument>:reader;})()}
       <div className="reading-end"><span className="end-rule"/><span>{continuous?(language==='zh'?'已到全文末尾':'End of document'):section.title}</span><span className="end-rule"/></div>
-      {!continuous&&<div className="reading-footer"><button className="next-section" disabled={currentIndex>=book.sections.length-1} onClick={()=>void go(book.sections[currentIndex+1].id,false)}>{t('继续下一节')} <ArrowRight size={16}/></button></div>}
+      {!continuous&&<div className="reading-footer"><button className="next-section" disabled={currentIndex>=book.sections.length-1} onClick={()=>void go(book.sections[currentIndex+1].id)}>{t('继续下一节')} <ArrowRight size={16}/></button></div>}
      </>:<div className="loading-paper">{books.length?<><LoaderCircle className="spin"/>{t('正在打开阅读资料…')}</>:<><BookOpen size={40}/><h2>{t('让一本难书，变得读得下去。')}</h2><p>{t('导入你的书籍、论文或教程，开始一段有来有回的阅读。')}</p><button className="primary" onClick={()=>file.current?.click()}>{t('导入第一份资料')}</button></>}</div>}
     </div>
     {selection&&highlighted&&<div className="selection-bar" onMouseDown={e=>e.preventDefault()}><span>{t('已选 {count} 字',{count:selection.length})}</span><button onClick={()=>void send(t('请解释我选中的这段话，先讲直觉，再举一个具体例子。'))}>{t('解释这段')} <ArrowUp size={14}/></button><button onClick={newNote}><Bookmark size={14}/>{t('记笔记')}</button>{button(t('取消选中'),<X size={14}/>,clearSelection)}</div>}

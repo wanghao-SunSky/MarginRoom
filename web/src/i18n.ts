@@ -4,6 +4,9 @@ export function getLanguage(): Language {
  return saved==='en'||saved==='zh'?saved:(navigator.language.toLowerCase().startsWith('zh')?'zh':'en');
 }
 const english: Record<string,string> = {
+ "阅读历史":"Reading history",
+ "后退到上一个阅读位置":"Back in reading history",
+ "前进到下一个阅读位置":"Forward in reading history",
  "这份入门示例已有新版，旧笔记与讨论保留在这里。": "A new getting-started sample is ready. Your previous notes and chats stay here.",
  "打开新版入门": "Open the new sample",
  "阅间": "MarginRoom",

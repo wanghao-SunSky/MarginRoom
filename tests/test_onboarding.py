@@ -29,11 +29,11 @@ def test_refresh_preserves_old_text_notes_positions_and_links(env, language):
         assert client.get('/api/sections/' + sid).json()['book_id'] == old
         assert client.get('/api/books/' + old + '/messages').json()[0]['content'] == 'My original question'
     new_book = client.get('/api/books/' + new).json()
-    assert len(new_book['sections']) == 3
+    assert len(new_book['sections']) == 244
+    assert new_book['title']=='CS329Z：AI Agent 工程（中文教程）'
     assert all('reading-demo' not in x['chapter'] for x in new_book['sections'])
-    assert all(x['chapter'] == x['title'] for x in new_book['sections'])
     assert new_book['replacement_id'] is None
-    assert s.one('SELECT count(*) n FROM books WHERE source=?',(name,))['n'] == 2
+    assert s.one('SELECT count(*) n FROM books WHERE source=?',(name,))['n'] == 1
     assert next(b for b in client.get('/api/books').json() if b['id'] == old)['replacement_id'] == new
 
 

@@ -53,28 +53,16 @@ def seed(workspace: Path | None = None):
     ignored: startup must never collect private sibling folders for a release.
     Existing imported documents and reading records are left unchanged.
     """
-    for name, language in [('reading-demo.en.md','en'),('reading-demo.zh.md','zh')]:
-        path=ROOT/'examples'/name
-        if path.is_file():
-            bid,created=import_file(name,path.read_bytes(),language)
-            if created:
-                title='Reading with AI' if language=='en' else '和 AI 一起阅读'
-                subtitle='Original quick-start sample' if language=='en' else '原创上手示例'
-                with db() as c:c.execute('UPDATE books SET title=?,subtitle=? WHERE id=?',(title,subtitle,bid))
-            # Exact shipped fingerprints, never a title match: a reader may
-            # import their own document with the same name. Preserve old IDs
-            # and text so notes, conversations and exported citations still work.
-            legacy_hash = {
-                'en':'0262ef5324f3158271283a4fc4e218d153e08a12d3998cbeb61d5f2e2c7d3c27',
-                'zh':'66fd1979113a454cdb936a12c609222c73b312dbc24994befc1711fde6c250d1',
-            }[language]
-            with db() as c:
-                old=c.execute('SELECT id FROM books WHERE source=? AND content_hash=? AND id<>?',(name,legacy_hash,bid)).fetchone()
-                if old:
-                    c.execute('INSERT OR REPLACE INTO example_replacements VALUES(?,?)',(old['id'],bid))
-                    c.execute('UPDATE books SET title=?,subtitle=? WHERE id=?',(
-                        'Previous getting-started sample' if language=='en' else '旧版入门示例',
-                        'Your notes and conversations are preserved' if language=='en' else '已保留原文、笔记与讨论',old['id']))
+    from .bundled_course import seed_course
+    bid,_=seed_course()
+    # Preserve every previous book and note, but guide unstarted old examples
+    # to the new default through the existing replacement metadata.
+    known={hashlib.sha256((ROOT/'examples'/name).read_bytes()).hexdigest() for name in ('reading-demo.en.md','reading-demo.zh.md') if (ROOT/'examples'/name).is_file()}
+    known.update({'0262ef5324f3158271283a4fc4e218d153e08a12d3998cbeb61d5f2e2c7d3c27','66fd1979113a454cdb936a12c609222c73b312dbc24994befc1711fde6c250d1'})
+    with db() as c:
+        for digest in known:
+            for row in c.execute('SELECT id FROM books WHERE content_hash=? AND id<>?',(digest,bid)).fetchall():
+                c.execute('INSERT OR IGNORE INTO example_replacements VALUES(?,?)',(row['id'],bid))
 
 
 def import_file(filename: str, raw: bytes, language: str = 'zh'):
