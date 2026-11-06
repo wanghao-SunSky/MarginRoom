@@ -15,6 +15,8 @@ from . import store as s
 from .model_config import get_model_config
 from .model_protocol import build_request, AnthropicStream
 
+from .learning_starters import RUST_STARTERS, CS329Z_STARTERS
+
 router=APIRouter(prefix='/api/books/{bid}/learning')
 
 
@@ -186,17 +188,13 @@ def starters(bid:str,section_id:str,language:str='zh'):
     """Deterministic, content-bound prompts: no model work on scroll."""
     row=section(bid,section_id)
     en=language=='en';source=row['content'];b=book(bid);version=b['content_hash']
-    key=hashlib.sha256(f'{bid}:{version}:{section_id}:{language}:{source}'.encode()).hexdigest()
+    key=hashlib.sha256(f'starters-v2:{bid}:{version}:{section_id}:{language}:{source}'.encode()).hexdigest()
     with s.db() as c:
         init_tables(c);cached=c.execute('SELECT payload FROM learning_cache WHERE key=?',(key,)).fetchone()
         if cached:return json.loads(cached[0])
-        import re
-        lines=[re.sub(r'^[#>*`\s-]+','',line).strip() for line in source.splitlines()]
-        paragraphs=re.split(r'\n\s*\n',source)
-        prose=next((re.sub(r'\s+',' ',p).strip() for p in paragraphs if len(p)>35 and not p.lstrip().startswith(('#','```','<','![','http','['))),row['title'])
-        excerpt=re.split(r'(?<=[.!?。！？])\s+',prose)[0][:180]
-        title=row['title'][:100]
-        prompts=([f'Explain “{title}” using a concrete example.',f'Why does the text say “{excerpt}”?'] if en else [f'“{title}”在解决什么问题？请用一个例子解释。',f'原文为什么说“{excerpt}”？'])
+        title=row['title']
+        known=RUST_STARTERS if 'rust-lang/book' in b.get('source','') else CS329Z_STARTERS if 'wanghao-SunSky/cs329z-chinese' in b.get('source','') else {}
+        prompts=[known[title][1 if en else 0]] if title in known else []
         value={'questions':prompts,'version':version,'section_id':section_id,'language':language}
         c.execute('INSERT OR REPLACE INTO learning_cache VALUES(?,?)',(key,json.dumps(value,ensure_ascii=False)))
     return value
