@@ -49,12 +49,12 @@ MarginRoom brings reading, whole-book lookup, live page navigation, and spaced-r
 ## Start Reading (Online or Localhost)
 
 - **Hosted Web App ([marginroom.app](https://marginroom.app))**: Open in your browser with zero setup or API key configuration. Sign in with an email verification code or Google to get **50 free AI questions per user per day** (service-wide usage limits also apply). On the hosted service, your library, reading progress, notes, flashcards, and conversations are stored in your cloud account on the server.
-- **Self-Hosted Local Edition (this repository)**: Runs as a single-user app on your machine (`127.0.0.1`) using your own official DeepSeek API key. Your library, reading positions, read marks, notes, flashcards, and conversation history live on disk under `data/` in SQLite (account login, email verification, OAuth, and hosted quota management are not part of the open-source local edition).
+- **Self-Hosted Local Edition (this repository)**: Runs as a single-user app on your machine (`127.0.0.1`) using your own DeepSeek, OpenAI-compatible, or Claude API configuration. Your library, reading positions, read marks, notes, flashcards, and conversation history live on disk under `data/` in SQLite (account login, email verification, OAuth, and hosted quota management are not part of the open-source local edition).
 
 ### Prerequisites
 - **Python 3.12+** and **[uv](https://docs.astral.sh/uv/getting-started/installation/)**
 - **Node.js 22.13+** (or Node.js 24+, matching the current Vite and PDF renderer requirements) and **npm**
-- An official **[DeepSeek API Key](https://platform.deepseek.com/)** *(optional at first launch—you can browse the built-in samples, import documents, read, and take manual notes without a key; add one whenever you're ready for AI co-reading)*
+- A **DeepSeek, OpenAI-compatible, or Claude API key** *(optional at first launch—you can browse the built-in samples, import documents, read, and take manual notes without a key; add one whenever you're ready for AI co-reading)*
 
 ### Install & Launch
 
@@ -63,9 +63,9 @@ MarginRoom brings reading, whole-book lookup, live page navigation, and spaced-r
 git clone https://github.com/wanghao-SunSky/MarginRoom.git
 cd MarginRoom
 
-# 1. Install Python dependencies & securely save your DeepSeek API key (hidden input, stored only in server .env)
+# 1. Install Python dependencies & securely configure your model API (hidden input, stored only in server .env)
 uv sync
-uv run python scripts/configure_key.py
+uv run python scripts/configure_model.py
 
 # 2. Build frontend assets (if needed) and start the local server (macOS / Linux)
 ./scripts/start.sh
@@ -85,7 +85,7 @@ Open [http://127.0.0.1:8765](http://127.0.0.1:8765) in your browser. MarginRoom 
 
 Local MOBI/AZW3 imports require `mobitool`: install with `brew install libmobi` on macOS or `sudo apt-get install libmobi-tools` on Debian/Ubuntu. EPUB imports do not require it.
 
-> **Model & Port**: `configure_key.py` sets `DEEPSEEK_MODEL=deepseek-flash` by default in `.env`. You can change `DEEPSEEK_MODEL` to any chat/tool-capable model available on your DeepSeek account, or set `READING_PORT` to use a different local port.
+> **Models & configuration**: Choose DeepSeek, an OpenAI-compatible Chat Completions endpoint, or the native Claude Messages API. Configure base URL, model ID, key, and optional reasoning effort with the setup wizard or `.env`. Existing `DEEPSEEK_*` settings remain supported. See [Model configuration](docs/model-configuration.md) for examples and compatibility notes. Set `READING_PORT` to change the local port.
 
 ---
 
@@ -124,7 +124,7 @@ So you always know what happens under the hood:
 
 - **How whole-book context & progress work**: MarginRoom doesn't stuff an entire book into every prompt or rely on opaque background embeddings. Each question automatically carries your **open section (up to 16,000 chars), highlighted passage (up to 5,000 chars), and recent conversation**, while the Agent uses bounded tool calls to inspect the outline, run keyword searches across the book and chat history, and read specific sections or chapters on demand (up to ~46,000 chars per chapter call, disclosing if truncated). Position tracking follows your open section/PDF page and selection; progress reflects the sections you explicitly mark as read.
 - **Supported files & PDFs**: Supports **PDF, EPUB, MOBI, AZW3, Markdown, and UTF-8 TXT** (20 MB per file; unencrypted PDFs: 600 pages locally, 200 on the hosted service). EPUB/Kindle imports preserve reading order, navigation, common raster images, and internal links. Reflowable, DRM-free ebooks are supported; original publisher CSS is not retained. PDFs provide both an original-page view and extracted text, **without OCR or image/diagram vision**—scanned or image-only pages are flagged clearly so you can view them in Original PDF mode.
-- **Privacy & network scope**: In the open-source local edition (`127.0.0.1`, single-user, do not expose directly to the public internet), your data and `.env` API key stay on your machine, and only when you ask an AI question does the local backend send the relevant reading context and tool-retrieved book excerpts to the official DeepSeek API. On the hosted web service (`marginroom.app`), your uploaded documents, notes, flashcards, and chat history are stored on the service's servers under your account, and asking an AI question sends the relevant reading excerpts to DeepSeek. See [Architecture](docs/architecture.md) and [Security & Privacy](SECURITY.md) for details.
+- **Privacy & network scope**: In the open-source local edition (`127.0.0.1`, single-user, do not expose directly to the public internet), your data and `.env` API key stay on your machine, and only when you ask an AI question does the local backend send the relevant reading context and tool-retrieved book excerpts to your configured model provider. On the hosted web service (`marginroom.app`), your uploaded documents, notes, flashcards, and chat history are stored on the service's servers under your account, and asking an AI question sends the relevant reading excerpts to the configured model provider. See [Architecture](docs/architecture.md) and [Security & Privacy](SECURITY.md) for details.
 
 ## Development & Checks
 

@@ -9,9 +9,10 @@ from typing import Any
 import httpx
 from . import store as s
 from . import dialogue
+from .model_config import get_model_config
+from .model_protocol import build_request, AnthropicStream
 from .i18n import tr
 
-API_URL = 'https://api.deepseek.com/chat/completions'
 MAX_ROUNDS = 6
 MAX_TOOLS = 12
 MODEL_PROGRESS_TIMEOUT = 45
@@ -286,7 +287,7 @@ async def execute_tool(run, name: str, args: dict):
     raise ValueError('未知工具')
 
 
-async def stream_model(messages, api_key, emit, *, thinking=False):
+async def stream_model(messages, api_key, emit, *, thinking=None):
     emitted=False
     def forward(text):
         nonlocal emitted
@@ -305,14 +306,14 @@ async def stream_model(messages, api_key, emit, *, thinking=False):
                     if emitted or attempt==2:raise
                     await asyncio.sleep(MODEL_RETRY_DELAY*(2**attempt))
     except TimeoutError as e:
-        raise RuntimeError('DeepSeek 本次回答超时，已停止等待。已收到的片段会保留，请稍后重试。') from e
+        raise RuntimeError('模型服务本次回答超时，已停止等待。已收到的片段会保留，请稍后重试。') from e
     except httpx.TimeoutException as e:
-        raise RuntimeError('连接 DeepSeek 超时，已停止等待，请稍后重试。') from e
+        raise RuntimeError('连接模型服务超时，已停止等待，请稍后重试。') from e
     except httpx.RequestError as e:
-        raise RuntimeError('与 DeepSeek 的连接中断或暂时无法建立，已停止本次回答。请检查网络后重试。') from e
+        raise RuntimeError('与模型服务的连接中断或暂时无法建立，已停止本次回答。请检查网络后重试。') from e
 
 
-async def _stream_model(messages, api_key, emit, *, thinking=False):
+async def _stream_model(messages, api_key, emit, *, thinking=None):
     # An already fulfilled write is no longer a useful next action. Keep
     # other tools available (e.g. saving a note and creating cards together).
     called={c['id']:c['function']['name'] for m in messages for c in m.get('tool_calls',[])}
@@ -324,42 +325,46 @@ async def _stream_model(messages, api_key, emit, *, thinking=False):
         name=called.get(message.get('tool_call_id'))
         if isinstance(output,dict) and ((name in ('save_artifact','create_cards') and output.get('saved')) or (name in ('navigate','return_to') and output.get('status') in ('applied','stale','expired','empty_stack'))):fulfilled.add(name)
     available=[t for t in TOOLS if t['function']['name'] not in fulfilled]
-    body={'model':os.getenv('DEEPSEEK_MODEL','deepseek-flash'),'messages':messages,'tools':available,
-          'stream':True,'stream_options':{'include_usage':True},'max_tokens':5000,'thinking':{'type':'enabled' if thinking else 'disabled'}}
-    if thinking:body['reasoning_effort']='high'
+    config=get_model_config()
+    endpoint,headers,body=build_request(config,messages,available,api_key,thinking)
+    native=AnthropicStream() if config.provider=='anthropic' else None
     parts=[]; reasoning=[]; calls={}; usage={}; finished=False; finish_reason=None; reader_visible=''
     text_gate=dialogue.TextReplyGate()
     async with httpx.AsyncClient(timeout=httpx.Timeout(100,connect=15),trust_env=False) as client:
-        async with client.stream('POST',API_URL,headers={'Authorization':f'Bearer {api_key}'},json=body) as response:
+        async with client.stream('POST',endpoint,headers=headers,json=body) as response:
             if response.status_code!=200:
-                errors={401:'DeepSeek 密钥无效，请检查服务端配置。',402:'DeepSeek 账户余额不足，请在官方平台充值后重试。',429:'DeepSeek 请求频率受限，请稍后重试。',503:'DeepSeek 官方服务当前繁忙或暂时不可用，已停止本次请求。请稍后重试。'}
+                errors={401:'模型服务密钥无效，请检查服务端配置。',402:'模型服务账户余额不足，请在模型服务平台检查余额后重试。',429:'模型服务请求频率受限，请稍后重试。',503:'模型服务当前繁忙或暂时不可用，已停止本次请求。请稍后重试。'}
                 error_type=TransientProviderError if response.status_code in (408,429,500,502,503,504) else RuntimeError
-                raise error_type(errors.get(response.status_code,f'DeepSeek 暂时无法完成请求（HTTP {response.status_code}），请稍后重试。'))
+                raise error_type(errors.get(response.status_code,f'模型服务暂时无法完成请求（HTTP {response.status_code}），请稍后重试。'))
             lines=response.aiter_lines().__aiter__()
             loop=asyncio.get_running_loop()
             progress_deadline=loop.time()+MODEL_PROGRESS_TIMEOUT
             while True:
                 remaining=progress_deadline-loop.time()
                 if remaining<=0:
-                    raise RuntimeError('DeepSeek 暂无新内容，等待超时，已停止本次回答。已收到的片段会保留，请稍后重试。')
+                    raise RuntimeError('模型服务暂无新内容，等待超时，已停止本次回答。已收到的片段会保留，请稍后重试。')
                 try:
                     line=await asyncio.wait_for(anext(lines),timeout=remaining)
                 except StopAsyncIteration:
                     break
                 except TimeoutError as e:
-                    raise RuntimeError('DeepSeek 暂无新内容，等待超时，已停止本次回答。已收到的片段会保留，请稍后重试。') from e
+                    raise RuntimeError('模型服务暂无新内容，等待超时，已停止本次回答。已收到的片段会保留，请稍后重试。') from e
                 if not line.startswith('data:'):continue
                 raw=line[5:].strip()
                 if raw=='[DONE]':
                     finished=True;break
                 if not raw:continue
                 event=json.loads(raw)
+                if native:event=native.feed(event)
+                if event.get('_done'):
+                    finished=True;break
+                if event.get('error'):raise RuntimeError('模型服务在输出过程中报错，请稍后重试。')
                 if event.get('usage'):usage=event['usage']
                 choices=event.get('choices') or []
                 if not choices:continue
                 if choices[0].get('finish_reason'):finish_reason=choices[0]['finish_reason']
                 delta=choices[0].get('delta',{})
-                progressed=False
+                progressed=bool(delta.get('_progress'))
                 if delta.get('reasoning_content'):
                     reasoning.append(delta['reasoning_content']);progressed=True
                 if delta.get('content'):
@@ -369,6 +374,9 @@ async def _stream_model(messages, api_key, emit, *, thinking=False):
                 for tc in delta.get('tool_calls',[]):
                     target=calls.setdefault(tc['index'],{'id':'','type':'function','function':{'name':'','arguments':''}})
                     if tc.get('id'):target['id']=tc['id']
+                    # Gemini-compatible APIs attach opaque thought signatures
+                    # to tool calls; preserve them for the next model round.
+                    if tc.get('extra_content'):target['extra_content']=tc['extra_content']
                     fn=tc.get('function',{})
                     if fn.get('name'):target['function']['name']+=fn['name']
                     target['function']['arguments']+=fn.get('arguments','')
@@ -382,7 +390,7 @@ async def _stream_model(messages, api_key, emit, *, thinking=False):
                     if len(prefix)>len(reader_visible):emit(prefix[len(reader_visible):]);reader_visible=prefix
                 if progressed:progress_deadline=loop.time()+MODEL_PROGRESS_TIMEOUT
     if not finished or finish_reason not in ('stop','tool_calls'):
-        raise RuntimeError('DeepSeek 回答未完整结束，已保留收到的片段，请重试；这次不会被记作完整回答。')
+        raise RuntimeError('模型服务回答未完整结束，已保留收到的片段，请重试；这次不会被记作完整回答。')
     try:recovered=text_gate.finish()
     except ValueError as e:raise RuntimeError('回复格式未完整结束，请重试。') from e
     if text_gate.tail:emit(text_gate.tail)
@@ -394,7 +402,8 @@ async def _stream_model(messages, api_key, emit, *, thinking=False):
     message={'role':'assistant','content':''.join(parts) or None}
     # Tool-call continuations must replay reasoning to DeepSeek. It remains
     # transient: never emit it into the visible transcript or saved messages.
-    if reasoning:message['reasoning_content']=''.join(reasoning)
+    if reasoning and config.provider=='deepseek':message['reasoning_content']=''.join(reasoning)
+    if native:message['_anthropic_content']=native.content
     if calls:message['tool_calls']=[calls[k] for k in sorted(calls)]
     return message,usage
 
@@ -437,7 +446,7 @@ async def run_agent(run_id, model_fn=stream_model):
             messages=compact_context(messages)
             totals['max_context_chars']=max(totals.get('max_context_chars',0),len(json.dumps(messages,ensure_ascii=False)))
             totals['rounds']=round_no+1
-            result,usage=await model_fn(messages,os.getenv('DEEPSEEK_API_KEY',''),on_delta)
+            result,usage=await model_fn(messages,get_model_config().api_key,on_delta)
             for k in ('prompt_tokens','completion_tokens','total_tokens'):totals[k]=totals.get(k,0)+usage.get(k,0)
             messages.append(result)
             calls=result.get('tool_calls',[])

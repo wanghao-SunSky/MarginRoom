@@ -1,15 +1,10 @@
-"""Receive a key without echoing it, then store it only in the ignored server .env."""
+"""Legacy DeepSeek shortcut; preserve other server settings."""
 import getpass
-import os
-import re
-from pathlib import Path
+from configure_model import ROOT, save_settings
 
 key = getpass.getpass('DeepSeek API key (hidden): ').strip()
-if not re.fullmatch(r'sk-[A-Za-z0-9_-]{20,}', key):
+if not key or any(c.isspace() for c in key):
     raise SystemExit('Invalid key format; nothing saved.')
-path = Path(__file__).resolve().parents[1] / '.env'
-fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-os.fchmod(fd, 0o600)
-with os.fdopen(fd, 'w') as stream:
-    stream.write('DEEPSEEK_API_KEY=' + key + '\nDEEPSEEK_MODEL=deepseek-flash\n')
-print('Server configuration saved. Key was not printed.')
+save_settings(ROOT / '.env', {'LLM_PROVIDER':'deepseek','LLM_BASE_URL':'https://api.deepseek.com',
+    'LLM_MODEL':'deepseek-flash','LLM_API_KEY':key,'LLM_REASONING_EFFORT':'','LLM_THINKING':'disabled','LLM_DISPLAY_NAME':''})
+print('Server configuration saved. Key was not printed. Restart MarginRoom to apply.')

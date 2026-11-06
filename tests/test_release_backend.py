@@ -41,7 +41,7 @@ def test_english_api_errors_and_request_language_validation(env,monkeypatch):
     monkeypatch.setenv('DEEPSEEK_API_KEY','')
     body={'id':'english-missing-key','book_id':bid,'section_id':sections[0]['id'],'client_id':'test','question':'Explain','language':'en'}
     response=client.post('/api/runs',json=body)
-    assert response.status_code==503 and response.json()['detail'].startswith('A DeepSeek API key')
+    assert response.status_code==503 and response.json()['detail'].startswith('A model API key')
     assert client.post('/api/runs',json={**body,'language':'fr'}).status_code==422
 
 

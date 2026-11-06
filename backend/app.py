@@ -21,6 +21,7 @@ from . import store as s
 from .ingest import seed, import_file
 from .agent import run_agent, safe_section, search
 from .dialogue import readable_content
+from .model_config import get_model_config
 from .i18n import tr, request_language
 
 load_dotenv(s.ROOT/'.env')
@@ -70,7 +71,7 @@ def require_book(bid):
 @app.get('/api/status')
 def status(request:Request):
     load_dotenv(s.ROOT/'.env',override=True)
-    return {'configured':bool(os.getenv('DEEPSEEK_API_KEY')),'provider':'DeepSeek official' if request_language(request)=='en' else 'DeepSeek 官方','model':os.getenv('DEEPSEEK_MODEL','deepseek-flash'),'version':'0.1.0'}
+    return get_model_config().public()
 
 @app.get('/api/books')
 def books():
@@ -285,7 +286,7 @@ async def start_run(body:RunBody,request:Request):
     request.state.language=body.language
     if not body.question.strip():raise HTTPException(422,'问题不能为空白')
     load_dotenv(s.ROOT/'.env',override=True)
-    if not os.getenv('DEEPSEEK_API_KEY'):raise HTTPException(503,'DeepSeek 官方 API Key 尚未接入。当前可以导入、阅读、做笔记；接入后即可提问。')
+    if not get_model_config().api_key:raise HTTPException(503,'模型 API Key 尚未配置。当前可以导入、阅读、做笔记；接入后即可提问。')
     try:safe_section(body.section_id,body.book_id)
     except ValueError as e:raise HTTPException(422,str(e))
     old=s.one('SELECT * FROM runs WHERE id=?',(body.id,))
