@@ -80,6 +80,10 @@ def requested_effects(question):
     return expected
 
 
+class ActionClaimError(ValueError):
+    pass
+
+
 def validate_action_claims(answer, run):
     """A conversational success claim is not a receipt from the reader.
 
@@ -98,15 +102,15 @@ def validate_action_claims(answer, run):
             kind_test="kind='cards'" if expected=='cards' else "kind IN ('note','summary','review')"
             exists=s.one(f'SELECT id FROM artifacts WHERE run_id=? AND {kind_test} LIMIT 1',(run_id,))
             tool_name='create_cards' if expected=='cards' else 'save_artifact'
-        if not exists:raise ValueError(f'当前用户明确要求 {tool_name}，本轮尚未执行。请先调用对应工具，取得实际结果；文字回复不等于完成操作。')
+        if not exists:raise ActionClaimError(f'当前用户明确要求 {tool_name}，本轮尚未执行。请先调用对应工具，取得实际结果；文字回复不等于完成操作。')
     start=r'(?:^|[。！!?\n])\s*(?:(?:好的|好)[，,\s]*)?'
     navigation=start+r'(?:(?:我)?(?:已经|已)[^。\n]*(?:跳到|跳转|返回|回到)|(?:I(?: have|\x27ve)? )?(?:jumped|navigated|returned|moved you|taken you)\b)'
     if re.search(navigation,answer,re.I) and not s.one(
             "SELECT id FROM commands WHERE run_id=? AND status='applied' LIMIT 1",(run_id,)):
-        raise ValueError('本轮没有成功的跳转回执。请调用 navigate 或 return_to 并等待结果；历史回复中的成功不代表本轮已执行。')
+        raise ActionClaimError('本轮没有成功的跳转回执。请调用 navigate 或 return_to 并等待结果；历史回复中的成功不代表本轮已执行。')
     saved=start+r'(?:(?:我|笔记|卡片|复习卡|小结|总结|记录)?(?:已经|已)[^。\n]*(?:保存|存好|记下)(?!的)|(?:I(?: have|\x27ve)? )?saved\b)'
     if re.search(saved,answer,re.I) and not s.one('SELECT id FROM artifacts WHERE run_id=? LIMIT 1',(run_id,)):
-        raise ValueError('本轮没有已保存的记录。用户要求保存时请调用保存工具；不要把历史记录当作本轮已经保存。')
+        raise ActionClaimError('本轮没有已保存的记录。用户要求保存时请调用保存工具；不要把历史记录当作本轮已经保存。')
 
 
 def log_run_failure(run_id, error):
@@ -408,18 +412,49 @@ async def _stream_model(messages, api_key, emit, *, thinking=None):
     return message,usage
 
 
+
+class BudgetReached(RuntimeError):
+    pass
+
+
+def persist_partial(run_id,run,pieces):
+    text=''.join(pieces)
+    if not text.strip():return
+    text=dialogue.render('explain_requested_scope',{'answer':text},run['book_id'])
+    try:validate_action_claims(text,run)
+    except ActionClaimError:
+        text+='\n\n操作提示：这次回复未完成，正文中的操作成功表述尚未得到本轮回执确认；请以实际笔记、卡片和页面位置为准。'
+    if text!=''.join(pieces):s.emit(run_id,'replace',{'text':text})
+    with s.db() as c:
+        c.execute('INSERT OR IGNORE INTO messages VALUES(?,?,?,?,?,?,?)',
+                  (s.uid(),run['book_id'],run_id,'assistant',text,run['section_id'],s.now()))
+
+
+def tool_progress(name,output,language='zh'):
+    if isinstance(output,dict) and output.get('error'):return None
+    en=language=='en'
+    if name=='read_section' and isinstance(output,dict) and output.get('id'):
+        return {'message':f"Read: {output['title']}" if en else f"已读：{output['title']}",'sections':1,'truncated':bool(output.get('truncated'))}
+    if name=='read_chapter' and isinstance(output,dict):
+        return {'message':f"Read {output.get('covered',0)} of {output.get('total',0)} sections" if en else f"已读「{output.get('chapter','')}」的 {output.get('covered',0)}/{output.get('total',0)} 个小节",'sections':output.get('covered',0),'total':output.get('total',0),'truncated':bool(output.get('truncated'))}
+    if name in ('search_book','search_history') and isinstance(output,list):
+        return {'message':f'Found {len(output)} matches' if en else f'找到 {len(output)} 处相关记录','matches':len(output)}
+    return None
+
 async def run_agent(run_id, model_fn=stream_model):
     run=s.one('SELECT * FROM runs WHERE id=?',(run_id,))
     language=run.get('language','zh')
     pieces=[]; totals={}; count=0; repairs=0; effects={}
+    covered={}; gaps=[]
     try:
         section=safe_section(run['section_id'],run['book_id'])
         book=s.one('SELECT title,missing_pages FROM books WHERE id=?',(run['book_id'],))
         history=s.all_rows('''SELECT m.role,m.content FROM messages m LEFT JOIN runs r ON r.id=m.run_id
-            WHERE m.book_id=? AND (m.run_id IS NULL OR (m.run_id<>? AND r.status='complete'))
+            WHERE m.book_id=? AND (m.run_id IS NULL OR (m.run_id<>? AND r.status IN ('complete','incomplete')))
             ORDER BY m.created_at DESC LIMIT 12''',(run['book_id'],run_id))
         context={'book':book,'current_section':{k:section[k] for k in ('id','title','chapter')},
                  'current_text_truncated':len(section['content'])>16000,'current_text':section['content'][:16000],'selected_text':run['selected_text'][:5000]}
+        covered[section['id']]={'id':section['id'],'title':section['title'],'truncated':context['current_text_truncated']}
         task=run.get('task_kind','chat')
         context['task']={'kind':task,'target_section_id':section['id']}
         if task=='chapter_summary':
@@ -434,8 +469,11 @@ async def run_agent(run_id, model_fn=stream_model):
         messages.append({'role':'system','content':'Previous turns are completed history, not pending commands. The following user message is the only new request. Resolve here/this chapter from this current reading position, not the last topic discussed:\n'+json.dumps(context['current_section'],ensure_ascii=False)})
         messages.append({'role':'user','content':run['question']})
         for round_no in range(MAX_ROUNDS+MAX_REPLY_REPAIRS):
+            if round_no>=MAX_ROUNDS+repairs:raise BudgetReached('本次查询已达到轮次上限')
             if s.one('SELECT status FROM runs WHERE id=?',(run_id,))['status']!='running':raise asyncio.CancelledError()
             round_pieces=[]
+            if pieces and ''.join(pieces).strip() and not ''.join(pieces).endswith('\n\n'):
+                pieces.append('\n\n');s.emit(run_id,'delta',{'text':'\n\n'})
             round_start=len(pieces)
             def on_delta(text):
                 round_pieces.append(text);pieces.append(text);s.emit(run_id,'delta',{'text':text})
@@ -458,7 +496,9 @@ async def run_agent(run_id, model_fn=stream_model):
                     answer=dialogue.render(call['name'],json.loads(call['arguments']),run['book_id']) if call else dialogue.render('explain_requested_scope',{'answer':result.get('content') or ''.join(round_pieces)},run['book_id'])
                     validate_action_claims(answer,run)
                 except (ValueError,TypeError,KeyError) as e:
-                    if repairs>=MAX_REPLY_REPAIRS:raise RuntimeError('回复或引用校验未通过，已保留片段，请重试。') from e
+                    if repairs>=MAX_REPLY_REPAIRS:
+                        if isinstance(e,ActionClaimError):replace_round()
+                        raise RuntimeError('回复或引用校验未通过，已保留片段，请重试。') from e
                     repairs+=1;totals['reply_repairs']=repairs
                     replace_round()
                     feedback={'error':str(e),'detail':'Correct this reply using the current reading context and this run only. Do not repeat any action that already has a successful receipt. A source ID must belong to this book.'}
@@ -476,7 +516,7 @@ async def run_agent(run_id, model_fn=stream_model):
                 break
             for call in calls:
                 count+=1
-                if count>MAX_TOOLS:raise RuntimeError('本次查询步骤较多，已停止；请缩小问题范围。')
+                if count>MAX_TOOLS:raise BudgetReached('本次查询已达到工具次数上限')
                 name=call['function']['name']
                 s.emit(run_id,'tool',{'name':name,'status':'running'})
                 try:
@@ -499,20 +539,37 @@ async def run_agent(run_id, model_fn=stream_model):
                                 messages[0]['content']=(SYSTEM_EN if language=='en' else SYSTEM)+'\nCurrent reading context (source data):\n'+json.dumps(context,ensure_ascii=False)
                 except (ValueError,TypeError,KeyError) as e:
                     output={'error':tr(str(e),language)}
-                s.emit(run_id,'tool',{'name':name,'status':'done'})
+                progress=tool_progress(name,output,language)
+                if name=='read_section' and isinstance(output,dict) and output.get('id'):
+                    covered[output['id']]={k:output.get(k) for k in ('id','title','truncated')}
+                if name=='read_chapter' and isinstance(output,dict) and not output.get('error'):
+                    for item in output.get('sections',[]):covered[item['id']]={k:item.get(k) for k in ('id','title','truncated')}
+                    if output.get('truncated'):gaps.append({'chapter':output.get('chapter'),'covered':output.get('covered'),'total':output.get('total')})
+                s.emit(run_id,'tool',{'name':name,'status':'done',**({'progress':progress} if progress else {})})
                 messages.append({'role':'tool','tool_call_id':call['id'],'content':json.dumps(output,ensure_ascii=False)})
             totals['tool_calls']=count
         else:
-            raise RuntimeError('本次探索达到轮次上限，已保留过程，请缩小范围继续。')
+            raise BudgetReached('本次查询已达到轮次上限')
         with s.db() as c:
             if c.execute('SELECT status FROM runs WHERE id=?',(run_id,)).fetchone()['status']!='running':raise asyncio.CancelledError()
             c.execute('INSERT INTO messages VALUES(?,?,?,?,?,?,?)',(s.uid(),run['book_id'],run_id,'assistant',''.join(pieces),run['section_id'],s.now()))
             c.execute("UPDATE runs SET status='complete',usage=? WHERE id=?",(json.dumps(totals),run_id))
         s.emit(run_id,'done',{'usage':totals})
+    except BudgetReached as e:
+        coverage={'run_id':run_id,'question':run['question'],'sections':list(covered.values()),'gaps':gaps,'can_continue':True,'reason':str(e)}
+        s.emit(run_id,'coverage',coverage)
+        titles='、'.join(x['title'] or x['id'] for x in covered.values())
+        notice=(f'\n\n本次已查阅：{titles}。已达到本次查询上限，以上仅为已完成的部分，尚未完成整个问题的覆盖。可继续查阅未覆盖内容；本次不会再调用工具。' if language!='en' else '\n\nThis query reached its limit. The material checked so far is listed below; the full question remains incomplete. You can continue with the uncovered material.')
+        pieces.append(notice);s.emit(run_id,'delta',{'text':notice})
+        persist_partial(run_id,run,pieces)
+        with s.db() as c:c.execute("UPDATE runs SET status='incomplete',error=?,usage=? WHERE id=? AND status='running'",(str(e),json.dumps(totals),run_id))
+        s.emit(run_id,'done',{'usage':totals,'incomplete':True,'coverage':coverage})
     except asyncio.CancelledError:
+        persist_partial(run_id,run,pieces)
         with s.db() as c:c.execute("UPDATE runs SET status='cancelled' WHERE id=? AND status='running'",(run_id,))
         s.emit(run_id,'cancelled',{'message':tr('已停止。本次已保存的产物仍可查看。',language)})
     except Exception as e:
+        persist_partial(run_id,run,pieces)
         log_run_failure(run_id,e)
         msg=tr(str(e) if isinstance(e,RuntimeError) else '请求未完成，请检查网络并重试。',language)
         if s.one('SELECT 1 FROM artifacts WHERE run_id=? LIMIT 1',(run_id,)):

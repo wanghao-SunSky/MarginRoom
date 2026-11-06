@@ -59,7 +59,7 @@ def test_heartbeat_without_model_progress_stops_waiting(env,monkeypatch):
     record=s.one('SELECT status,error FROM runs WHERE id=?',(run['id'],))
     assert record['status']=='failed'
     assert '超时' in record['error']
-    assert not s.all_rows("SELECT * FROM messages WHERE run_id=? AND role='assistant'",(run['id'],))
+    assert s.one("SELECT content FROM messages WHERE run_id=? AND role='assistant'",(run['id'],))['content']=='first token'
     assert s.all_rows('SELECT * FROM events WHERE run_id=? AND type=?',(run['id'],'delta'))
 
 
@@ -71,7 +71,7 @@ def test_incomplete_stream_is_not_saved_as_finished_answer(env,monkeypatch):
     monkeypatch.setattr(agent.httpx,'AsyncClient',lambda **kwargs:real_client(transport=transport,**kwargs))
     asyncio.run(agent.run_agent(run['id'],agent.stream_model))
     assert s.one('SELECT status FROM runs WHERE id=?',(run['id'],))['status']=='failed'
-    assert not s.all_rows("SELECT * FROM messages WHERE run_id=? AND role='assistant'",(run['id'],))
+    assert s.one("SELECT content FROM messages WHERE run_id=? AND role='assistant'",(run['id'],))['content']=='only part'
 
 class FiniteStream(httpx.AsyncByteStream):
     def __init__(self,events,delay=0):self.events=events;self.delay=delay
