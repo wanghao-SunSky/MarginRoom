@@ -41,8 +41,8 @@ def test_chapter_map_keeps_semantic_order_with_optional_boundary(env):
 def test_renderer_validates_sources_without_limiting_depth(env):
     _,bid,other,sections=env
     foreign=s.one('SELECT id FROM sections WHERE book_id=?',(other,))['id']
-    with pytest.raises(ValueError):dialogue.render('clarify_meaning',{'meaning':'解释','example':'','sources':[foreign]},bid)
-    with pytest.raises(ValueError):dialogue.render('explain_requested_scope',{'answer':f'[来源](/section/{foreign})'},bid)
+    assert '来源尚未确认' in dialogue.render('clarify_meaning',{'meaning':'解释','example':'','sources':[foreign]},bid)
+    assert f'/section/{foreign}' not in dialogue.render('explain_requested_scope',{'answer':f'[来源](/section/{foreign})'},bid)
     explanation='完整推导\n'*2000
     assert dialogue.render('explain_requested_scope',{'answer':explanation},bid)==explanation
     result=dialogue.render('clarify_meaning',{'meaning':'反馈','example':'','sources':[sections[0]['id']]},bid)
@@ -87,7 +87,7 @@ def test_terminal_reply_is_streamed_saved_and_never_sent_back_to_model(env,monke
     assert all('sources' not in d for d in deltas)
 
 @pytest.mark.parametrize('failure',['invalid_source','malformed_json','mixed_calls'])
-def test_invalid_terminal_reply_never_completes_or_executes_mixed_actions(env,monkeypatch,failure):
+def test_terminal_reply_degrades_bad_sources_but_rejects_invalid_protocol(env,monkeypatch,failure):
     _,bid,_,sections=env;run=make_run(bid,sections[0]['id'])
     args={'meaning':'反馈','example':'','sources':['missing' if failure=='invalid_source' else sections[0]['id']]}
     raw=json.dumps(args)
@@ -95,9 +95,11 @@ def test_invalid_terminal_reply_never_completes_or_executes_mixed_actions(env,mo
     extra={'index':1,'id':'nav1','function':{'name':'navigate','arguments':json.dumps({'section_id':sections[0]['id']})}} if failure=='mixed_calls' else None
     install(monkeypatch,ToolStream(raw,extra))
     asyncio.run(agent.run_agent(run['id'],agent.stream_model))
-    assert s.one('SELECT status FROM runs WHERE id=?',(run['id'],))['status']=='failed'
+    assert s.one('SELECT status FROM runs WHERE id=?',(run['id'],))['status']==('complete' if failure=='invalid_source' else 'failed')
     assert not s.all_rows('SELECT * FROM commands WHERE run_id=?',(run['id'],))
-    assert not s.all_rows("SELECT * FROM messages WHERE run_id=? AND role='assistant'",(run['id'],))
+    text=s.one("SELECT content FROM messages WHERE run_id=? AND role='assistant'",(run['id'],))['content']
+    assert '反馈' in text and '<clarify_meaning>' not in text
+    if failure=='invalid_source':assert '来源尚未确认' in text and '/section/missing' not in text
 
 class TextStream(httpx.AsyncByteStream):
     def __init__(self,text):self.text=text
@@ -138,7 +140,7 @@ def test_ordinary_prose_and_code_still_stream_unchanged(env,monkeypatch,text):
     assert len(deltas)>2
 
 @pytest.mark.parametrize('variant',['truncated','invalid_source','duplicate_field','extra_field','trailing_operation'])
-def test_broken_text_protocol_is_never_emitted_or_saved(env,monkeypatch,variant):
+def test_text_protocol_rejects_broken_structure_and_degrades_foreign_source(env,monkeypatch,variant):
     _,bid,other,sections=env;run=make_run(bid,sections[0]['id'])
     sid=sections[0]['id']
     if variant=='invalid_source':sid=s.one('SELECT id FROM sections WHERE book_id=?',(other,))['id']
@@ -149,9 +151,15 @@ def test_broken_text_protocol_is_never_emitted_or_saved(env,monkeypatch,variant)
     if variant=='trailing_operation':raw+='<navigate><section_id>'+sid+'</section_id></navigate>'
     install(monkeypatch,TextStream(raw))
     asyncio.run(agent.run_agent(run['id'],agent.stream_model))
-    assert s.one('SELECT status FROM runs WHERE id=?',(run['id'],))['status']=='failed'
-    assert not s.all_rows("SELECT * FROM events WHERE run_id=? AND type='delta'",(run['id'],))
-    assert not s.all_rows("SELECT * FROM messages WHERE run_id=? AND role='assistant'",(run['id'],))
+    state=s.one('SELECT status FROM runs WHERE id=?',(run['id'],))['status']
+    assert state==('complete' if variant=='invalid_source' else 'failed')
+    rows=s.all_rows("SELECT * FROM messages WHERE run_id=? AND role='assistant'",(run['id'],))
+    if variant=='invalid_source':
+        assert '定义' in rows[0]['content'] and '来源尚未确认' in rows[0]['content']
+        assert '/section/'+sid not in rows[0]['content'] and '<clarify_meaning>' not in rows[0]['content']
+    else:
+        assert not s.all_rows("SELECT * FROM events WHERE run_id=? AND type='delta'",(run['id'],))
+        assert not rows
     assert not s.all_rows('SELECT * FROM commands WHERE run_id=?',(run['id'],))
 
 @pytest.mark.parametrize('name',list(dialogue.FIELDS))

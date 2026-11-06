@@ -101,8 +101,10 @@ def test_invalid_source_is_repaired_without_reexecuting_saved_effect(env):
     asyncio.run(agent.run_agent(run['id'], model))
     assert record(run['id'])['status'] == 'complete'
     assert len(s.all_rows('SELECT * FROM artifacts WHERE run_id=?', (run['id'],))) == 1
-    assert '初稿' not in answer(run['id']) and foreign not in answer(run['id'])
-    assert '修正后的解释' in answer(run['id'])
+    assert rounds == 2
+    assert '初稿' in answer(run['id']) and foreign not in answer(run['id'])
+    assert '来源尚未确认' in answer(run['id'])
+    assert '修正后的解释' not in answer(run['id'])
 
 
 def test_transient_provider_failure_recovers_in_same_request(monkeypatch):
@@ -178,7 +180,7 @@ def test_invalid_reply_recovery_has_a_finite_limit_and_keeps_usage(env):
     async def model(messages, key, emit):
         nonlocal rounds
         rounds += 1
-        return call('clarify_meaning', {'meaning': '解释', 'sources': ['nonexistent']}), {'total_tokens': 20}
+        return call('clarify_meaning', {'meaning': 42, 'sources': []}), {'total_tokens': 20}
     asyncio.run(agent.run_agent(run['id'], model))
     assert rounds == 3 and record(run['id'])['status'] == 'failed'
     assert json.loads(record(run['id'])['usage'])['total_tokens'] == 60

@@ -133,16 +133,25 @@ def render(name, args, book_id):
     text='\n\n'.join(args[field] for field in FIELDS[name] if args[field])
     ids=args.get('sources',[])
     if not isinstance(ids,list) or any(not isinstance(x,str) for x in ids):raise ValueError('回复来源格式无效')
-    links=[]
+    links=[]; unconfirmed=False
     for sid in dict.fromkeys(ids):
         section=s.one('SELECT title FROM sections WHERE id=? AND book_id=?',(sid,book_id))
-        if not section:raise ValueError('回复来源不属于当前资料')
+        if not section:
+            unconfirmed=True
+            continue
         title=section['title'].replace('\\','\\\\').replace('[','\\[').replace(']','\\]')
         links.append(f'[{title}](/section/{sid})')
-    for sid in re.findall(r'\]\(/section/([^\s)]+)\)',text):
-        if not s.one('SELECT id FROM sections WHERE id=? AND book_id=?',(sid,book_id)):
-            raise ValueError('回复中的引用不属于当前资料')
+    def check_link(match):
+        nonlocal unconfirmed
+        label,sid=match.groups()
+        if s.one('SELECT id FROM sections WHERE id=? AND book_id=?',(sid,book_id)):
+            return match.group(0)
+        unconfirmed=True
+        return label+'（来源链接不可用）'
+    text=re.sub(r'\[([^\]]*)\]\(/section/([^\s)]+)\)',check_link,text)
     if links:text+='\n\n'+' · '.join(links)
+    if unconfirmed:
+        text+='\n\n来源提示：部分引用无法在当前资料中定位，已禁用对应链接；回答的来源尚未确认。有效章节链接也只表示章节存在，不代表逐句事实已核验。'
     return text
 
 def _string_prefix(raw, start):

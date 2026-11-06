@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from . import store as s
+from . import learning
 from .ingest import seed, import_file
 from .agent import run_agent, safe_section, search
 from .dialogue import readable_content
@@ -37,6 +38,7 @@ async def lifespan(app):
 
 app=FastAPI(title='阅间',lifespan=lifespan)
 app.add_middleware(TrustedHostMiddleware,allowed_hosts=os.getenv('READING_ALLOWED_HOSTS','localhost,127.0.0.1,testserver').split(','))
+app.include_router(learning.router)
 
 @app.exception_handler(HTTPException)
 async def localized_http_error(request:Request,exc:HTTPException):
@@ -96,7 +98,8 @@ def book(bid:str):
     if ebook:
         b.update({key:json.loads(ebook[key]) for key in ('outline','warnings')})
     b['sections']=s.all_rows('''SELECT x.id,x.title,x.chapter,x.ordinal,x.page,LENGTH(x.content) chars,
-        EXISTS(SELECT 1 FROM marks WHERE section_id=x.id) is_read
+        EXISTS(SELECT 1 FROM marks WHERE section_id=x.id) is_read,
+        EXISTS(SELECT 1 FROM read_overrides WHERE section_id=x.id) auto_read_blocked
         FROM sections x WHERE book_id=? ORDER BY ordinal''',(bid,))
     return b
 
@@ -142,13 +145,21 @@ def position(bid:str,body:Position):
 
 class Mark(BaseModel):
     read:bool
+    source:Literal['manual','auto']='manual'
 @app.put('/api/sections/{sid}/read')
 def mark(sid:str,body:Mark):
     section(sid)
+    if body.source=='auto' and not body.read:raise HTTPException(422,'Automatic progress cannot mark a section unread.')
     with s.db() as c:
-        if body.read:c.execute('INSERT OR IGNORE INTO marks VALUES(?,?)',(sid,s.now()))
-        else:c.execute('DELETE FROM marks WHERE section_id=?',(sid,))
-    return {'ok':True}
+        c.execute('BEGIN IMMEDIATE')
+        if body.source=='manual':
+            if body.read:c.execute('DELETE FROM read_overrides WHERE section_id=?',(sid,))
+            else:c.execute('INSERT OR IGNORE INTO read_overrides VALUES(?,?)',(sid,s.now()))
+        blocked=bool(c.execute('SELECT 1 FROM read_overrides WHERE section_id=?',(sid,)).fetchone())
+        if body.read and not blocked:c.execute('INSERT OR IGNORE INTO marks VALUES(?,?)',(sid,s.now()))
+        elif not body.read:c.execute('DELETE FROM marks WHERE section_id=?',(sid,))
+        read=bool(c.execute('SELECT 1 FROM marks WHERE section_id=?',(sid,)).fetchone())
+    return {'ok':True,'read':read,'auto_blocked':blocked}
 
 @app.get('/api/books/{bid}/messages')
 def messages(bid:str):

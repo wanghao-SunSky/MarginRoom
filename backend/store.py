@@ -63,6 +63,8 @@ def init():
           updated_at REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS marks (
           section_id TEXT PRIMARY KEY REFERENCES sections(id),created_at REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS read_overrides (
+          section_id TEXT PRIMARY KEY REFERENCES sections(id),created_at REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS runs (
           id TEXT PRIMARY KEY,book_id TEXT NOT NULL REFERENCES books(id),client_id TEXT NOT NULL,
           question TEXT NOT NULL,status TEXT NOT NULL,created_at REAL NOT NULL,
