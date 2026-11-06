@@ -54,7 +54,7 @@ def test_cumulative_usage_does_not_fail_an_already_applied_navigation(env, monke
         rounds += 1
         if rounds == 1:
             return call('navigate', {'section_id': sections[1]['id']}), {'total_tokens': 40000}
-        assert json.loads(messages[-1]['content'])['status'] == 'applied'
+        assert json.loads(next(message['content'] for message in reversed(messages) if message['role']=='tool'))['status'] == 'applied'
         assert json.loads(messages[0]['content'].split('Current reading context (source data):\n')[-1])['current_section']['id'] == sections[1]['id']
         return call('explain_requested_scope', {'answer': '已跳到目标章节。'}), {'total_tokens': 40000}
     asyncio.run(agent.run_agent(run['id'], model))
@@ -95,8 +95,8 @@ def test_invalid_source_is_repaired_without_reexecuting_saved_effect(env):
         if rounds == 2:
             emit('初稿。')
             return call('clarify_meaning', {'meaning': '初稿。', 'example': '', 'sources': [foreign]}), {}
-        assert messages[-1]['role'] == 'tool'
-        assert 'error' in json.loads(messages[-1]['content'])
+        tool_result=next(message for message in reversed(messages) if message['role']=='tool')
+        assert 'error' in json.loads(tool_result['content'])
         return call('clarify_meaning', {'meaning': '修正后的解释。', 'example': '', 'sources': [sections[0]['id']]}), {}
     asyncio.run(agent.run_agent(run['id'], model))
     assert record(run['id'])['status'] == 'complete'
@@ -298,7 +298,7 @@ def test_outline_works_in_a_legacy_library_without_pdf_metadata(env, missing_tab
         nonlocal rounds
         rounds += 1
         if rounds == 1:return call('get_outline', {}), {}
-        outline=json.loads(messages[-1]['content'])
+        outline=json.loads(next(message['content'] for message in reversed(messages) if message['role']=='tool'))
         assert len(outline['sections']) == len(sections)
         assert outline['bookmarks'] == []
         return call('explain_requested_scope', {'answer': '已找到本书目录。'}), {}

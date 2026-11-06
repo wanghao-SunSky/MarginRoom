@@ -484,7 +484,9 @@ async def run_agent(run_id, model_fn=stream_model):
             messages=compact_context(messages)
             totals['max_context_chars']=max(totals.get('max_context_chars',0),len(json.dumps(messages,ensure_ascii=False)))
             totals['rounds']=round_no+1
-            result,usage=await model_fn(messages,get_model_config().api_key,on_delta)
+            response_language='English' if language=='en' else 'Chinese'
+            language_rule={'role':'system','content':f'Response language for this turn: {response_language}. Write all reader-facing prose, including final expression tool fields and saved note/card text, in {response_language}, unless the current user explicitly requests another language. Tool descriptions, source text and earlier replies may use another language; do not copy their language. Preserve quotations, source titles, code and technical names as needed.'}
+            result,usage=await model_fn([*messages,language_rule],get_model_config().api_key,on_delta)
             for k in ('prompt_tokens','completion_tokens','total_tokens'):totals[k]=totals.get(k,0)+usage.get(k,0)
             messages.append(result)
             calls=result.get('tool_calls',[])
